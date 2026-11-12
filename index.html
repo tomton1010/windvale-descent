@@ -1,0 +1,2623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>风谷速降 · Windvale Descent</title>
+<!--
+==========================================================================
+ 风谷速降 (Windvale Descent) —— 单文件 Three.js 第三人称下山竞速
+--------------------------------------------------------------------------
+ 如何打开：
+   推荐：在本文件所在目录运行  python3 -m http.server 8000
+         然后浏览器访问 http://localhost:8000/index.html
+   也可直接双击用浏览器打开 (file://)，需联网以从 jsDelivr CDN 加载 three.js。
+ 键位：
+   W/↑ 加速   S/↓ 刹车/倒退   A/D 或 ←/→ 转向   空格 跳跃
+   Shift 冲刺(消耗耐力 / 滑板能量)   1 山地车  2 骑马  3 悬浮滑板
+   R 重新开始   按住鼠标左/右键拖动：小幅环视（松开自动回正）
+   触控：左侧虚拟摇杆移动，右侧滑动环视，跳 / 冲刺按钮，点载具图标切换。
+ 三种载具：
+   1 山地自行车：土路/车辙/跳台最顺，下坡加速最猛，落地压坡不减速；
+                 深草、浅滩、碎石明显减速，碎石上会打滑。
+   2 骑马：开阔草原最强，加速与巡航稳，跳得高(可越矮石/矮篱/浅沟)；
+           密林、急弯、窄道转向迟钝，浅滩可涉水但变慢。
+   3 悬浮滑板：能量有限，可短时越过水面/沟壑(滑翔)，陡坡与上升气流中更快；
+               抓地弱、急转刹车会侧漂；能量耗尽会落地，需贴地(在陆地上)恢复。
+ 目标：从高处草原山脊出发，沿山谷与林间路一路冲进远处河谷小镇的广场即通关。
+ 调参：脚本开头的 CONFIG 对象集中了速度/加速度/跳跃/雾/草密度/路线长度等。
+==========================================================================
+-->
+<style>
+  :root{
+    --ink:#3b2f22; --cream:rgba(255,248,230,.82); --cream2:rgba(255,250,238,.92);
+    --gold:#e8b447; --leaf:#6fae3f; --sky:#58a9d6; --red:#d0573a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#bfe0ee;font-family:"Trebuchet MS","PingFang SC","Hiragino Sans GB","Noto Sans SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;color:var(--ink);user-select:none;touch-action:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+  canvas{display:block;touch-action:none}
+  #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 55%,rgba(40,30,10,.22) 100%)}
+  .hud{position:fixed;pointer-events:none;opacity:0;transition:opacity .5s}
+  body.racing .hud{opacity:1}
+  .panel{background:var(--cream);border:2px solid rgba(90,70,40,.35);border-radius:14px;box-shadow:0 3px 0 rgba(80,60,30,.25),0 8px 24px rgba(40,30,10,.15)}
+  #progress{top:14px;left:50%;transform:translateX(-50%);width:min(520px,56vw);padding:7px 14px 8px}
+  #progress .lbl{display:flex;justify-content:space-between;font-size:13px;font-weight:bold;letter-spacing:1px}
+  #bar{position:relative;height:10px;margin-top:5px;border-radius:6px;background:linear-gradient(90deg,#9ccf63,#c7d46a 35%,#5f9a4a 55%,#9fcf7a 75%,#e0b36a);box-shadow:inset 0 1px 2px rgba(0,0,0,.25)}
+  #bar .tick{position:absolute;top:-3px;width:3px;height:16px;background:#7a5230;border-radius:2px}
+  #bar .tick.done{background:#e8b447;box-shadow:0 0 6px #ffd56a}
+  #bar #me{position:absolute;top:-6px;width:14px;height:22px;margin-left:-7px;border-radius:7px 7px 7px 7px;background:#d0573a;border:2px solid #fff6dc;box-shadow:0 2px 3px rgba(0,0,0,.3)}
+  #bar .town{position:absolute;right:-8px;top:-9px;font-size:18px}
+  #timer{top:14px;right:16px;padding:6px 14px;text-align:right;min-width:150px}
+  #timer .t{font-size:28px;font-weight:bold;font-variant-numeric:tabular-nums;letter-spacing:1px}
+  #timer .sp{font-size:12px;opacity:.85;font-variant-numeric:tabular-nums}
+  #veh{left:16px;bottom:16px;display:flex;gap:8px}
+  #veh .v{width:86px;padding:6px 6px 5px;text-align:center;font-size:12px;font-weight:bold;opacity:.55;transition:all .15s;pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  #veh .v.on{opacity:1;transform:translateY(-6px);background:var(--cream2);border-color:#e8b447;box-shadow:0 3px 0 #c8902f,0 8px 22px rgba(232,180,71,.35)}
+  #veh .v svg{width:48px;height:30px;display:block;margin:0 auto 2px}
+  #veh .k{display:inline-block;background:#7a5230;color:#fff6dc;border-radius:4px;padding:0 4px;margin-right:3px}
+  #gauge{right:16px;bottom:16px;padding:8px 14px 10px;min-width:210px}
+  #gauge .spd{font-size:44px;font-weight:bold;line-height:1;font-variant-numeric:tabular-nums}
+  #gauge .u{font-size:13px;margin-left:4px;opacity:.8}
+  #gauge .surf{font-size:13px;margin:3px 0 6px;font-weight:bold}
+  #gauge .surf b{color:#2f7a3a}
+  #gauge .surf b.slow{color:#b4492d}
+  .meter{display:flex;align-items:center;gap:6px;font-size:11px;margin-top:4px}
+  .meter .m{flex:1;height:8px;border-radius:5px;background:rgba(80,60,30,.2);overflow:hidden}
+  .meter .m i{display:block;height:100%;width:100%;border-radius:5px;background:linear-gradient(90deg,#e8b447,#ffe08a)}
+  #energyRow .m i{background:linear-gradient(90deg,#4fb3a9,#bdf0e4)}
+  #energyRow.dim{opacity:.45}
+  #energyRow.low .m i{background:linear-gradient(90deg,#d0573a,#f2a07a)}
+  #toast{top:30%;left:50%;transform:translateX(-50%);font-size:30px;font-weight:bold;color:#fff8e2;text-shadow:0 2px 0 #7a5230,0 0 14px rgba(80,50,10,.6);opacity:0;transition:opacity .25s;white-space:nowrap}
+  #toast.show{opacity:1}
+  #count{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);font-size:110px;font-weight:bold;color:#fff6dc;text-shadow:0 5px 0 #c8902f,0 0 30px rgba(120,70,10,.5);pointer-events:none;opacity:0}
+  #fade{position:fixed;inset:0;background:#fff8e6;opacity:0;pointer-events:none;transition:opacity .25s}
+  .overlay{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);padding:26px 34px 24px;text-align:center;max-width:min(760px,92vw);background:var(--cream2)}
+  .overlay h1{margin:0;font-size:52px;letter-spacing:6px;color:#4a3420;text-shadow:0 3px 0 #f3d58a}
+  .overlay .sub{margin:4px 0 14px;font-size:14px;letter-spacing:2px;opacity:.8}
+  .overlay .keys{font-size:14px;line-height:1.8;margin:6px 0 12px}
+  .overlay .keys kbd{display:inline-block;min-width:22px;padding:0 6px;border-radius:5px;background:#7a5230;color:#fff6dc;font-family:inherit;font-size:13px;box-shadow:0 2px 0 #4a3420}
+  .cards{display:flex;gap:10px;justify-content:center;margin:8px 0 14px;text-align:left}
+  .card{flex:1;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.55);border:1px solid rgba(90,70,40,.2);font-size:12.5px;line-height:1.5}
+  .card b{font-size:14px}
+  button.go{pointer-events:auto;font-family:inherit;font-size:22px;font-weight:bold;letter-spacing:3px;padding:10px 38px;border-radius:12px;border:2px solid #8a5a22;background:linear-gradient(#ffd877,#e8a83a);color:#4a3420;cursor:pointer;box-shadow:0 4px 0 #8a5a22}
+  button.go:hover{filter:brightness(1.07)}
+  button.go:disabled{opacity:.5;cursor:wait}
+  #title{top:auto;bottom:3%;transform:translateX(-50%);padding:16px 26px 16px}
+  #title h1{font-size:44px}
+  #finish{display:none}
+  #finish .big{font-size:58px;font-weight:bold;font-variant-numeric:tabular-nums;margin:6px 0}
+  #finish table{margin:6px auto 14px;font-size:14px;font-variant-numeric:tabular-nums;border-collapse:collapse}
+  #finish td{padding:2px 12px}
+  #hint{bottom:118px;left:50%;transform:translateX(-50%);font-size:13px;padding:4px 12px;opacity:0}
+  body.racing #hint.show{opacity:.9}
+
+
+  /* 触控层：虚拟摇杆 + 动作按钮 + 右侧环视区 */
+  #touchUI{position:fixed;inset:0;pointer-events:none;z-index:5;display:none}
+  body.touch.racing:not(.demo) #touchUI{display:block}
+  #joyZone{position:absolute;left:0;bottom:0;width:48%;height:64%;pointer-events:auto;touch-action:none;z-index:1}
+  #lookZone{position:absolute;right:0;bottom:0;width:58%;height:72%;pointer-events:auto;touch-action:none;z-index:1}
+  #joyBase{
+    position:fixed;left:calc(22px + env(safe-area-inset-left,0px) + 70px);bottom:calc(24px + env(safe-area-inset-bottom,0px) + 70px);top:auto;
+    width:140px;height:140px;margin-left:-70px;margin-bottom:-70px;border-radius:50%;
+    background:radial-gradient(circle at 50% 42%,rgba(255,248,230,.28),rgba(40,30,16,.32));
+    border:2px solid rgba(255,246,220,.4);box-shadow:inset 0 0 28px rgba(40,30,10,.18),0 4px 16px rgba(0,0,0,.22);
+    pointer-events:none;opacity:.82;transition:opacity .18s,border-color .15s,box-shadow .15s
+  }
+  #joyBase.held{opacity:1;border-color:rgba(232,180,71,.75);box-shadow:0 0 18px rgba(232,180,71,.28),inset 0 0 24px rgba(40,30,10,.2)}
+  #joyKnob{
+    position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;
+    background:linear-gradient(#fff6dc,#e8c56a);border:2px solid #8a5a22;
+    box-shadow:0 3px 0 #8a5a22,0 6px 14px rgba(40,30,10,.35);pointer-events:none;will-change:transform
+  }
+  #touchBtns{
+    position:absolute;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));
+    display:flex;align-items:flex-end;gap:14px;pointer-events:none;z-index:2
+  }
+  .tbtn{
+    pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;
+    appearance:none;-webkit-appearance:none;font-family:inherit;font-weight:bold;color:#4a3420;letter-spacing:1px;
+    border-radius:50%;border:2px solid #8a5a22;background:linear-gradient(#ffd877,#e8a83a);
+    box-shadow:0 4px 0 #8a5a22,0 8px 18px rgba(40,30,10,.28);cursor:pointer;padding:0
+  }
+  .tbtn.held{transform:translateY(3px);box-shadow:0 1px 0 #8a5a22,0 4px 10px rgba(40,30,10,.25);filter:brightness(1.06)}
+  .tbtn.jump{width:86px;height:86px;font-size:26px}
+  .tbtn.boost{width:70px;height:70px;font-size:16px;background:linear-gradient(#ffe8a0,#e8b447)}
+  .tbtn.restart{width:46px;height:46px;font-size:11px;position:absolute;right:0;bottom:104px;background:linear-gradient(#f3e6c8,#e0c48a);opacity:.92}
+  .touch-only{display:none}
+  body.touch .desk-only{display:none}
+  body.touch .touch-only{display:inline}
+
+  body.touch.racing #veh{top:max(58px,calc(env(safe-area-inset-top,0px) + 50px));left:max(8px,env(safe-area-inset-left,0px));bottom:auto;z-index:6;gap:6px}
+  body.touch.racing #gauge{top:max(58px,calc(env(safe-area-inset-top,0px) + 50px));right:max(8px,env(safe-area-inset-right,0px));bottom:auto;z-index:6;min-width:148px;padding:6px 10px 8px}
+  body.touch.racing #progress{top:max(8px,env(safe-area-inset-top,0px));width:min(520px,calc(100vw - 200px));z-index:6}
+  body.touch.racing #timer{top:max(8px,env(safe-area-inset-top,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:6;min-width:auto;padding:5px 10px}
+  body.touch.racing #hint{bottom:auto;top:42%;z-index:6}
+  @media (max-width:820px){
+    #title{padding:14px 16px 16px;max-height:92dvh;overflow:auto;bottom:2%;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+    #title h1,.overlay h1{font-size:34px;letter-spacing:3px}
+    #title .keys{font-size:13px}
+    .cards{gap:8px}
+    .card{font-size:12px}
+    button.go{font-size:20px;padding:12px 36px;min-height:48px}
+    #count{font-size:84px}
+    #toast{font-size:22px}
+    body.touch.racing #veh .v{width:70px;padding:4px;font-size:11px}
+    body.touch.racing #veh .v svg{width:40px;height:24px}
+    body.touch.racing #gauge .spd{font-size:28px}
+    body.touch.racing #timer .t{font-size:20px}
+  }
+  @media (max-height:450px){
+    #title .cards,#title .sub{display:none}
+    #title h1,.overlay h1{font-size:26px;letter-spacing:2px;margin:0}
+    #title{padding:10px 14px 12px}
+    #joyBase{width:118px;height:118px;margin-left:-59px;margin-bottom:-59px}
+    .tbtn.jump{width:72px;height:72px;font-size:22px}
+    .tbtn.boost{width:60px;height:60px;font-size:14px}
+    .tbtn.restart{width:40px;height:40px;bottom:86px;font-size:10px}
+    body.touch.racing #gauge .surf{display:none}
+  }
+
+  body.demo{cursor:none}
+  body.demo #count,body.demo #toast{display:none!important}
+  #demoCap{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);font-size:22px;letter-spacing:8px;font-weight:bold;color:#fff8e2;text-shadow:0 2px 0 #5a3a18,0 0 18px rgba(40,25,8,.55);opacity:0;transition:opacity .6s;pointer-events:none;z-index:6;white-space:nowrap}
+  #demoCap.show{opacity:1}
+  #demoEnd{display:none;z-index:7}
+  #fade{background:#f3e4c4}
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="vignette"></div>
+<div id="progress" class="hud panel">
+  <div class="lbl"><span id="secName">山脊草原</span><span id="dist">距小镇 2.2 km</span></div>
+  <div id="bar"><svg class="town" viewBox="0 0 20 20" width="20" height="20"><path d="M2 18V9l5-5 5 5v9z" fill="#f3e6c8" stroke="#3b2f22" stroke-width="1.5"/><path d="M1 10l6-7 6 7" fill="#d0573a" stroke="#3b2f22" stroke-width="1.5"/><path d="M14 18V4h4v14z" fill="#f3e6c8" stroke="#3b2f22" stroke-width="1.5"/><path d="M13 5l3-4 3 4z" fill="#4f7fb0" stroke="#3b2f22" stroke-width="1.2"/></svg><div id="me"></div></div>
+</div>
+<div id="timer" class="hud panel"><div class="t" id="tm">0:00.00</div><div class="sp" id="split">检查点 0 / 4</div></div>
+<div id="veh" class="hud">
+  <div class="v panel" data-v="bike"><svg viewBox="0 0 48 30"><circle cx="11" cy="20" r="8" fill="none" stroke="#3b2f22" stroke-width="2.5"/><circle cx="37" cy="20" r="8" fill="none" stroke="#3b2f22" stroke-width="2.5"/><path d="M11 20 L20 9 L33 9 L37 20 M20 9 L24 20 L33 9 M18 6 h6 M31 5 l3 4" fill="none" stroke="#d0573a" stroke-width="2.5" stroke-linecap="round"/></svg><span class="k">1</span>山地车</div>
+  <div class="v panel" data-v="horse"><svg viewBox="0 0 48 30"><path d="M8 14 Q14 8 26 10 L34 6 Q36 2 40 4 L44 9 L41 11 L37 10 L36 16 Q34 20 30 19 L30 28 M30 19 L26 28 M14 18 L12 28 M16 18 L19 28 M8 14 Q6 18 4 22 M8 14 Q10 19 16 18 Q24 20 30 19" fill="none" stroke="#3b2f22" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="k">2</span>骑马</div>
+  <div class="v panel" data-v="hover"><svg viewBox="0 0 48 30"><ellipse cx="24" cy="17" rx="20" ry="5" fill="#c98b4a" stroke="#3b2f22" stroke-width="2"/><path d="M10 24 q3 3 6 0 M22 25 q3 3 6 0 M33 24 q3 3 6 0" fill="none" stroke="#4fb3a9" stroke-width="2" stroke-linecap="round"/></svg><span class="k">3</span>悬浮板</div>
+</div>
+<div id="gauge" class="hud panel">
+  <div><span class="spd" id="spd">0</span><span class="u">km/h</span></div>
+  <div class="surf">地面：<b id="surf">土路</b></div>
+  <div class="meter" id="stamRow"><span>耐力</span><div class="m"><i id="stam"></i></div></div>
+  <div class="meter" id="energyRow"><span>能量</span><div class="m"><i id="energy"></i></div></div>
+</div>
+<div id="hint" class="hud panel"></div>
+<div id="toast" class="hud"></div>
+<div id="touchUI">
+  <div id="lookZone"></div>
+  <div id="joyZone">
+    <div id="joyBase"><div id="joyKnob"></div></div>
+  </div>
+  <div id="touchBtns">
+    <button type="button" id="btnRestart" class="tbtn restart" aria-label="重开">重开</button>
+    <button type="button" id="btnBoost" class="tbtn boost" aria-label="冲刺">冲刺</button>
+    <button type="button" id="btnJump" class="tbtn jump" aria-label="跳跃">跳</button>
+  </div>
+</div>
+<div id="count"></div>
+<div id="fade"></div>
+
+<div id="demoCap"></div>
+<div id="demoEnd" class="overlay panel">
+  <h1>风谷速降</h1>
+  <div class="sub">WINDVALE DESCENT · 从山脊一路冲进河谷小镇</div>
+  <div class="keys">三种载具随时切换 · 打开 index.html 即可游玩</div>
+</div>
+
+<div id="title" class="overlay panel">
+  <h1>风谷速降</h1>
+  <div class="sub">WINDVALE DESCENT · 从山脊一路冲进河谷小镇</div>
+  <div class="keys">
+    <span class="desk-only"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / 方向键 移动 · <kbd>空格</kbd> 跳 · <kbd>Shift</kbd> 冲刺 ·
+    <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 切换载具 · <kbd>R</kbd> 重开 · 按住鼠标拖动 小幅环视</span>
+    <span class="touch-only">左侧摇杆移动 · 右侧滑动环视 · 跳 / 冲刺 · 点图标换载具</span>
+  </div>
+  <div class="cards">
+    <div class="card"><b>1 山地车</b><br>土路、车辙、跳台最顺，下坡最猛；深草/浅滩/碎石减速打滑。借坡起跳，压坡落地。</div>
+    <div class="card"><b>2 骑马</b><br>开阔草原最强，巡航稳、跳得高，能越矮石矮篱；密林急弯转不动，涉水变慢。</div>
+    <div class="card"><b>3 悬浮滑板</b><br>能滑过水面和沟壑，陡坡与上升气流更快；抓地弱易侧漂，能量耗尽需回陆地恢复。</div>
+  </div>
+  <button class="go" id="startBtn" disabled>正在生成山谷…</button>
+</div>
+
+<div id="finish" class="overlay panel">
+  <h1>抵达小镇！</h1>
+  <div class="sub">总用时</div>
+  <div class="big" id="finTime">0:00.00</div>
+  <div id="finBest" style="font-size:14px;margin-bottom:4px"></div>
+  <table id="finSplits"></table>
+  <button class="go" id="againBtn">再跑一次 (R)</button>
+</div>
+<script type="module">
+import * as THREE from 'three';
+
+/* =====================================================================
+   CONFIG —— 关键参数集中可调
+   ===================================================================== */
+const CONFIG = {
+  quality: { maxPixelRatio: 1.5, shadowMapSize: 2048, shadowRange: 60, autoDowngrade: true, antialias: true },
+  route: {
+    length: 2000,          // 路线 z 方向长度 (m)，实际弧长约 2.2 km
+    endZ: -2012,           // 小镇广场中心 z
+    roadHalf: 3.4,         // 土路半宽
+    boundsMargin: 95,      // 超出走廊多少米即重置
+    checkpointsT: [0.2, 0.4, 0.6, 0.8],
+  },
+  terrain: { innerHalfX: 400, innerZ0: 220, innerZ1: -2320, cell: 4, outerHalf: 4800, outerCell: 40, surfCell: 2 },
+  fog: { color: 0xd3e7ec, density: 0.0003 },
+  sky: { horizon: 0xd8ecf0, zenith: 0x3d8fd0, sunGlow: 0xffe2a8, sun: 0xfff3d2 },
+  light: { sun: 2.05, hemi: 1.55, sunColor: 0xfff0d0, skyColor: 0xc8e6ff, groundColor: 0x7a8c45 },
+  grass: { nearCount: 70000, nearTile: 96, nearWidth: 0.13, midCount: 26000, midTile: 230, midWidth: 0.32, wind: 1.0 },
+  trees: { forest: 1500, meadow: 420, far: 2200, highLodDist: 360 },
+  camera: { fov: 62, fovBoost: 14, dist: 6.4, height: 2.5, lag: 5.5, yawLag: 4.2, lookAhead: 5, introHold: 1.6, introBlend: 1.3 },
+  physics: { gravity: 22, slopeG: 9.8, dt: 1 / 120, maxSub: 8 },
+  vehicles: {
+    bike: {
+      name: '山地自行车', accel: 8.5, maxSpeed: 19.5, boostSpeed: 23.5, boostAccel: 11, brake: 16, reverse: 3,
+      turnRate: 2.5, turnMin: 3, turnFalloff: 0.035, airTurn: 0.35, grip: 10, drag: 0.05, air: 0.0016,
+      slopeMul: 1.45, jumpVel: 7.6, hardLand: 13.5, radius: 0.55, stickAcc: 14, stickTol: 0.035, stamDrain: 0.22, stamRegen: 0.14,
+      forestTurn: 1.0, camDist: 6.0, camH: 2.3,
+      surf: { //  speed: 极速倍率  accel: 加速倍率  grip: 抓地倍率  drag: 额外阻力  turn: 转向倍率  wobble: 打滑抖动
+        DIRT:   { speed: 1.0,  accel: 1.0, grip: 1.0,  drag: 0.0,  turn: 1.0 },
+        WOOD:   { speed: 1.0,  accel: 1.0, grip: 1.0,  drag: 0.0,  turn: 1.0 },
+        GRASS:  { speed: 0.78, accel: 0.75, grip: 0.9, drag: 0.22, turn: 0.95 },
+        TALL:   { speed: 0.5,  accel: 0.5, grip: 0.8,  drag: 0.9,  turn: 0.85 },
+        WATER:  { speed: 0.4,  accel: 0.45, grip: 0.55, drag: 1.5, turn: 0.7, wobble: 0.6 },
+        GRAVEL: { speed: 0.72, accel: 0.7, grip: 0.32, drag: 0.35, turn: 0.9, wobble: 1.4 },
+        FOREST: { speed: 0.58, accel: 0.6, grip: 0.75, drag: 0.6,  turn: 0.9, wobble: 0.4 },
+        ROCK:   { speed: 0.75, accel: 0.7, grip: 0.45, drag: 0.3,  turn: 0.85, wobble: 0.8 },
+        TOWN:   { speed: 1.0,  accel: 1.0, grip: 1.0,  drag: 0.0,  turn: 1.0 },
+      }
+    },
+    horse: {
+      name: '骑马', accel: 8.5, maxSpeed: 16, boostSpeed: 21.5, boostAccel: 11, brake: 13, reverse: 2,
+      turnRate: 2.1, turnMin: 1.5, turnFalloff: 0.075, airTurn: 0.25, grip: 8, drag: 0.06, air: 0.0012,
+      slopeMul: 0.55, jumpVel: 9.6, hardLand: 12.5, radius: 0.8, stickAcc: 45, stickTol: 0.08, stamDrain: 0.2, stamRegen: 0.11,
+      forestTurn: 0.55, camDist: 7.4, camH: 3.1,
+      surf: {
+        DIRT:   { speed: 0.88, accel: 0.85, grip: 1.0, drag: 0.04, turn: 1.0 },
+        WOOD:   { speed: 0.85, accel: 0.9, grip: 0.9,  drag: 0.05, turn: 0.9 },
+        GRASS:  { speed: 1.14, accel: 1.15, grip: 1.05, drag: 0.0, turn: 1.0 },
+        TALL:   { speed: 1.02, accel: 1.0, grip: 1.0,  drag: 0.05, turn: 0.95 },
+        WATER:  { speed: 0.55, accel: 0.6, grip: 0.85, drag: 0.8,  turn: 0.8 },
+        GRAVEL: { speed: 0.8,  accel: 0.8, grip: 0.8,  drag: 0.2,  turn: 0.9 },
+        FOREST: { speed: 0.45, accel: 0.5, grip: 0.9,  drag: 0.9,  turn: 0.6 },
+        ROCK:   { speed: 0.6,  accel: 0.6, grip: 0.7,  drag: 0.4,  turn: 0.8 },
+        TOWN:   { speed: 0.9,  accel: 0.9, grip: 1.0,  drag: 0.03, turn: 1.0 },
+      }
+    },
+    hover: {
+      name: '悬浮滑板', accel: 7, maxSpeed: 17, boostSpeed: 22.5, boostAccel: 10, brake: 4.5, reverse: 3,
+      turnRate: 2.9, turnMin: 2, turnFalloff: 0.03, airTurn: 0.6, grip: 1.5, drag: 0.035, air: 0.0011,
+      slopeMul: 1.65, jumpVel: 6.2, hardLand: 16, radius: 0.55, stickAcc: 0, stickTol: 0, hoverH: 0.55, glideFall: 3.2,
+      springK: 70, springD: 12, waterDrain: 0.12, glideDrain: 0.24, boostDrain: 0.3, regen: 0.16, jumpCost: 0.1,
+      steepBonus: 5, forestTurn: 1.0, camDist: 6.4, camH: 2.4,
+      surf: {
+        DIRT:   { speed: 1.0,  accel: 1.0, grip: 1.0, drag: 0.0, turn: 1.0 },
+        WOOD:   { speed: 1.0,  accel: 1.0, grip: 1.0, drag: 0.0, turn: 1.0 },
+        GRASS:  { speed: 0.98, accel: 1.0, grip: 1.0, drag: 0.02, turn: 1.0 },
+        TALL:   { speed: 0.9,  accel: 0.9, grip: 1.0, drag: 0.08, turn: 1.0 },
+        WATER:  { speed: 1.08, accel: 1.05, grip: 0.7, drag: 0.0, turn: 1.0 },   // 有能量时掠水
+        SUNK:   { speed: 0.32, accel: 0.35, grip: 1.5, drag: 1.6, turn: 0.6 },   // 能量耗尽落水
+        GRAVEL: { speed: 0.96, accel: 0.95, grip: 0.9, drag: 0.03, turn: 1.0 },
+        FOREST: { speed: 0.8,  accel: 0.8, grip: 1.0, drag: 0.15, turn: 0.95 },
+        ROCK:   { speed: 1.0,  accel: 1.0, grip: 0.9, drag: 0.0, turn: 1.0 },
+        TOWN:   { speed: 0.95, accel: 1.0, grip: 1.0, drag: 0.0, turn: 1.0 },
+      }
+    }
+  }
+};
+const SURF_NAME = { DIRT: '土路', WOOD: '木桥', GRASS: '草地', TALL: '深草', WATER: '浅滩', SUNK: '落水', GRAVEL: '碎石', FOREST: '林地', ROCK: '岩坡', TOWN: '石板路' };
+
+/* =====================================================================
+   工具函数：插值、噪声、随机
+   ===================================================================== */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const damp = (a, b, k, dt) => lerp(a, b, 1 - Math.exp(-k * dt));
+const wrapAngle = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+const dampAngle = (a, b, k, dt) => a + wrapAngle(b - a) * (1 - Math.exp(-k * dt));
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rand = mulberry32(20261111);
+const rr = (a, b) => a + (b - a) * rand();
+function hash2(ix, iy) { let h = (Math.imul(ix | 0, 374761393) + Math.imul(iy | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967295; }
+function vnoise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy), b = hash2(ix + 1, iy), c = hash2(ix, iy + 1), d = hash2(ix + 1, iy + 1);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function fbm(x, y, oct = 4) { let s = 0, a = 0.5, f = 1; for (let i = 0; i < oct; i++) { s += a * (vnoise(x * f, y * f) * 2 - 1); f *= 2.03; a *= 0.5; } return s; }
+function ridged(x, y, oct = 4) { let s = 0, a = 0.5, f = 1; for (let i = 0; i < oct; i++) { const n = 1 - Math.abs(vnoise(x * f, y * f) * 2 - 1); s += a * n * n; f *= 2.1; a *= 0.5; } return s; }
+// 单调三次插值（用于高度剖面、宽度表等）
+function makeCurve(keys) {
+  const xs = keys.map(k => k[0]), ys = keys.map(k => k[1]), n = xs.length;
+  const m = new Array(n).fill(0), dl = [];
+  for (let i = 0; i < n - 1; i++) dl.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+  for (let i = 1; i < n - 1; i++) m[i] = dl[i - 1] * dl[i] <= 0 ? 0 : (dl[i - 1] + dl[i]) / 2;
+  m[0] = dl[0]; m[n - 1] = dl[n - 2];
+  return x => {
+    if (x <= xs[0]) return ys[0]; if (x >= xs[n - 1]) return ys[n - 1];
+    let i = 0; while (x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], t = (x - xs[i]) / h, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * m[i + 1];
+  };
+}
+const linCurve = keys => x => { if (x <= keys[0][0]) return keys[0][1]; for (let i = 0; i < keys.length - 1; i++) { if (x <= keys[i + 1][0]) { const t = (x - keys[i][0]) / (keys[i + 1][0] - keys[i][0]); return lerp(keys[i][1], keys[i + 1][1], t); } } return keys[keys.length - 1][1]; };
+
+/* =====================================================================
+   路线：x = X(z) 的平滑蛇形曲线，z 从 0 一路向 -2000（下坡方向）
+   ===================================================================== */
+// 三个谐波，周期与路线长度对齐 → 起点与小镇都在 x≈0，中途蛇形摆动
+const RT_TERMS = [[55, 2 * Math.PI / 2012, 0], [25, 3 * 2 * Math.PI / 2012, 0], [8, 9 * 2 * Math.PI / 2012, 0.6]];
+const RT_C = RT_TERMS.reduce((a, [A, , P]) => a + A * Math.sin(P), 0);
+const L = CONFIG.route.length, ROAD = CONFIG.route.roadHalf, END_Z = CONFIG.route.endZ;
+function routeX(z) { const u = -z; let x = -RT_C; for (const [A, K, P] of RT_TERMS) x += A * Math.sin(u * K + P); return x; }
+function routeDX(z) { const u = -z; let d = 0; for (const [A, K, P] of RT_TERMS) d -= A * K * Math.cos(u * K + P); return d; }
+function routeD(x, z) { const dx = routeDX(z); return (x - routeX(z)) / Math.sqrt(1 + dx * dx); }
+const gf = v => (Number.isInteger(v) ? v.toFixed(1) : v.toPrecision(9));
+const GLSL_ROUTE = `
+#define ROADHALF ${gf(ROAD)}
+float routeX(float z){ float u=-z; return ${RT_TERMS.map(([A, K, P]) => `${gf(A)}*sin(u*${gf(K)}+${gf(P)})`).join('+')}-(${gf(RT_C)}); }
+float routeDX(float z){ float u=-z; return -(${RT_TERMS.map(([A, K, P]) => `${gf(A * K)}*cos(u*${gf(K)}+${gf(P)})`).join('+')}); }
+float routeD(float x, float z){ float dx=routeDX(z); return (x-routeX(z))*inversesqrt(1.0+dx*dx); }
+`;
+// 弧长表 s(z)
+const ARC = { z0: 260, z1: -2300, step: 1, s: null };
+(() => {
+  const n = Math.round((ARC.z0 - ARC.z1) / ARC.step) + 1; ARC.s = new Float32Array(n);
+  let s = 0, px = routeX(ARC.z0), pz = ARC.z0;
+  for (let i = 0; i < n; i++) { const z = ARC.z0 - i * ARC.step, x = routeX(z); s += Math.hypot(x - px, z - pz); ARC.s[i] = s; px = x; pz = z; }
+  const off = sAtZRaw(0); for (let i = 0; i < n; i++) ARC.s[i] -= off;
+  function sAtZRaw(z) { const f = (ARC.z0 - z) / ARC.step, i = clamp(Math.floor(f), 0, n - 2); return lerp(ARC.s[i], ARC.s[i + 1], f - i); }
+})();
+function sAtZ(z) { const n = ARC.s.length, f = (ARC.z0 - z) / ARC.step, i = clamp(Math.floor(f), 0, n - 2); return lerp(ARC.s[i], ARC.s[i + 1], clamp(f - i, 0, 1)); }
+function zAtS(s) { // 二分
+  let lo = 0, hi = ARC.s.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (ARC.s[mid] < s) lo = mid; else hi = mid; }
+  const t = (s - ARC.s[lo]) / Math.max(1e-6, ARC.s[hi] - ARC.s[lo]);
+  return ARC.z0 - (lo + clamp(t, 0, 1)) * ARC.step;
+}
+const S_END = sAtZ(END_Z);
+const tOfZ = z => -z / L;
+const zOfT = t => -t * L;
+
+/* =====================================================================
+   地形：高度剖面 + 走廊宽度 + 地貌特征（断崖、沟壑、浅沟、起伏）
+   ===================================================================== */
+const profile = makeCurve([[-0.15, 268], [0, 252], [0.05, 247], [0.12, 232], [0.2, 212], [0.24, 201], [0.29, 189], [0.32, 181], [0.40, 153],
+  [0.48, 130], [0.5, 124], [0.6, 95], [0.7, 66], [0.73, 57], [0.745, 54.5], [0.80, 52.5], [0.84, 43], [0.9, 27], [0.94, 16], [0.965, 11.5], [0.985, 10], [1.2, 10]]);
+const widthAt = linCurve([[-0.15, 70], [0, 66], [0.2, 60], [0.26, 46], [0.33, 46], [0.45, 42], [0.5, 30], [0.7, 30], [0.745, 82], [0.9, 66], [0.95, 62], [1.2, 62]]);
+const wallAt = linCurve([[-0.15, 0.12], [0.05, 0.12], [0.2, 0.18], [0.3, 0.3], [0.5, 0.36], [0.7, 0.32], [0.76, 0.2], [0.95, 0.24], [1.2, 0.3]]);
+const FEAT = {
+  cliff: { t: 0.305, drop: 7 },
+  ravine: { z: -480, half: 6.5, depth: 5.8, roadDepth: 1.7 },
+  ditches: [-178, -232],
+  rollers: [-285, -395],
+  townT: 0.968,
+};
+const SECTIONS = [[0, '山脊草原'], [0.22, '断崖坡'], [0.36, '溪谷'], [0.5, '林间路'], [0.71, '湖畔草甸'], [0.93, '河谷小镇']];
+const sectionName = t => { let n = SECTIONS[0][1]; for (const s of SECTIONS) if (t >= s[0]) n = s[1]; return n; };
+const isForestT = t => t > 0.5 && t < 0.705;
+
+function baseHeight(x, z) {
+  const t = tOfZ(z);
+  const d = routeD(x, z), ad = Math.abs(d);
+  let h = profile(t);
+  // 断崖：路面附近缓坡，路外陡落
+  const onRoad = 1 - smoothstep(6, 16, ad);
+  const cw = lerp(0.0032, 0.02, onRoad);
+  h -= FEAT.cliff.drop * smoothstep(FEAT.cliff.t - cw, FEAT.cliff.t + cw, t);
+  // 沟壑：横穿走廊，路面处浅（可慢慢下沟爬出），两侧深
+  const rv = Math.abs(z - FEAT.ravine.z);
+  const rd = lerp(FEAT.ravine.depth, FEAT.ravine.roadDepth, 1 - smoothstep(4.5, 9, ad));
+  h -= rd * (1 - smoothstep(FEAT.ravine.half * 0.55, FEAT.ravine.half, rv));
+  // 骑马可越的浅沟（只在路外）
+  for (const dz of FEAT.ditches) h -= 1.1 * (1 - smoothstep(0.8, 2.4, Math.abs(z - dz))) * smoothstep(5, 9, ad);
+  // 路面起伏滚包（压坡）
+  if (z < FEAT.rollers[0] && z > FEAT.rollers[1]) { const k = Math.sin((z - FEAT.rollers[0]) * 0.36); h += 0.75 * k * k * smoothstep(FEAT.rollers[0], FEAT.rollers[0] - 10, z) * smoothstep(FEAT.rollers[1], FEAT.rollers[1] + 10, z); }
+  // 走廊两侧逐渐抬升成缓坡/山体
+  const W = widthAt(t), e = Math.max(0, ad - W);
+  const townK = smoothstep(FEAT.townT - 0.01, FEAT.townT + 0.01, t);
+  h += wallAt(t) * e * e / (e + 35);
+  const offRoad = smoothstep(4.5, 14, ad);
+  h += offRoad * fbm(x * 0.012, z * 0.012, 3) * lerp(4.2, 0.4, townK);
+  h += offRoad * fbm(x * 0.05 + 3, z * 0.05, 2) * lerp(0.6, 0.1, townK);
+  h += fbm(x * 0.0035 + 7, z * 0.0035 - 3, 4) * (12 + ad * 0.22) * smoothstep(W * 0.8, W + 70, ad);
+  if (ad > 220) h += ridged(x * 0.0016 + 11, z * 0.0016, 4) * (ad - 220) * 0.38;
+  return h;
+}
+
+/* 水体：两条横穿的溪/河 + 一处湖 */
+const STREAMS = [
+  { z: -812, half: 7.5, depth: 1.25, amp: 12, k: 0.013, bridge: 'wood' },
+  { z: -1890, half: 11, depth: 1.15, amp: 16, k: 0.009, bridge: 'stone' },
+];
+for (const st of STREAMS) { st.x0 = -CONFIG.terrain.innerHalfX - 20; st.step = 2; st.n = Math.ceil((CONFIG.terrain.innerHalfX * 2 + 40) / 2) + 1; st.level = new Float32Array(st.n); }
+const streamZ = (st, x) => st.z + st.amp * Math.sin(x * st.k + 1.1) - st.amp * Math.sin(routeX(st.z) * st.k + 1.1);
+function streamLevelAt(st, x) { const f = (x - st.x0) / st.step, i = clamp(Math.floor(f), 0, st.n - 2); return lerp(st.level[i], st.level[i + 1], clamp(f - i, 0, 1)); }
+for (const st of STREAMS) {
+  for (let i = 0; i < st.n; i++) {
+    const x = st.x0 + i * st.step, zc = streamZ(st, x);
+    st.level[i] = Math.min(baseHeight(x, zc - st.half * 1.3), baseHeight(x, zc + st.half * 1.3), baseHeight(x, zc) + 0.25) - 0.35;
+  }
+}
+const LAKE = { rx: 42, rz: 95, level: 0, cx: 0, cz: 0 };
+(() => { // 找到 t≈0.77 附近的弯顶，把湖放在弯内侧
+  let best = 1e9, zb = -1540;
+  for (let z = -1480; z > -1620; z -= 1) { const a = Math.abs(routeDX(z)); if (a < best) { best = a; zb = z; } }
+  const xpp = (routeX(zb + 2) - 2 * routeX(zb) + routeX(zb - 2)) / 4;
+  LAKE.cz = zb; LAKE.cx = routeX(zb) + Math.sign(xpp || -1) * 58;
+  let m = 1e9;
+  for (let a = 0; a < Math.PI * 2; a += 0.1) m = Math.min(m, baseHeight(LAKE.cx + Math.cos(a) * LAKE.rx * 1.05, LAKE.cz + Math.sin(a) * LAKE.rz * 1.05));
+  LAKE.level = Math.min(m, baseHeight(LAKE.cx, LAKE.cz) + 0.3) - 0.3;
+})();
+const lakeQ = (x, z) => { const a = (x - LAKE.cx) / LAKE.rx, b = (z - LAKE.cz) / LAKE.rz; return a * a + b * b; };
+
+function terrainHeight(x, z) {
+  let h = baseHeight(x, z);
+  for (const st of STREAMS) {
+    const dz = Math.abs(z - streamZ(st, x));
+    if (dz < st.half * 1.7) {
+      const lvl = streamLevelAt(st, x);
+      const bed = lvl - st.depth * (1 - (dz / st.half) ** 2);
+      const w = smoothstep(st.half * 0.85, st.half * 1.7, dz);
+      h = Math.min(h, lerp(bed, Math.max(h, lvl + 0.15), w));
+    }
+  }
+  const q = lakeQ(x, z);
+  if (q < 2.2) { const k = smoothstep(0.3, 1.5, q); h = Math.min(h, lerp(LAKE.level - 1.7, h, k)); }
+  return h;
+}
+function waterLevelAt(x, z) {
+  let lvl = null;
+  for (const st of STREAMS) if (Math.abs(z - streamZ(st, x)) < st.half * 1.2) lvl = Math.max(lvl ?? -1e9, streamLevelAt(st, x));
+  if (lakeQ(x, z) < 1.6) lvl = Math.max(lvl ?? -1e9, LAKE.level);
+  return lvl;
+}
+
+/* =====================================================================
+   高度网格（渲染与物理共用同一套三角形，保证贴地精确）
+   ===================================================================== */
+const TG = CONFIG.terrain;
+const GRID = { x0: -TG.innerHalfX, z0: TG.innerZ0, cell: TG.cell };
+GRID.nx = Math.round(2 * TG.innerHalfX / TG.cell) + 1;
+GRID.nz = Math.round((TG.innerZ0 - TG.innerZ1) / TG.cell) + 1;
+GRID.h = new Float32Array(GRID.nx * GRID.nz);
+for (let j = 0; j < GRID.nz; j++) { const z = GRID.z0 - j * GRID.cell; for (let i = 0; i < GRID.nx; i++) GRID.h[j * GRID.nx + i] = terrainHeight(GRID.x0 + i * GRID.cell, z); }
+
+const _gres = { h: 0, nx: 0, ny: 1, nz: 0, wood: false };
+function gridSample(x, z, out) {
+  const gx = (x - GRID.x0) / GRID.cell, gz = (GRID.z0 - z) / GRID.cell;
+  if (gx < 0 || gz < 0 || gx >= GRID.nx - 1 || gz >= GRID.nz - 1) {
+    const e = 0.5, h = terrainHeight(x, z), hx = terrainHeight(x + e, z), hz = terrainHeight(x, z + e);
+    const nx = -(hx - h) / e, nz = -(hz - h) / e, il = 1 / Math.hypot(nx, 1, nz);
+    out.h = h; out.nx = nx * il; out.ny = il; out.nz = nz * il; return out;
+  }
+  const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j, N = GRID.nx, H = GRID.h, c = GRID.cell;
+  const h00 = H[j * N + i], h10 = H[j * N + i + 1], h01 = H[(j + 1) * N + i], h11 = H[(j + 1) * N + i + 1];
+  let h, dhdx, dhdz; // dz world = -c per j
+  if (fx + fz <= 1) { h = h00 + (h10 - h00) * fx + (h01 - h00) * fz; dhdx = (h10 - h00) / c; dhdz = -(h01 - h00) / c; }
+  else { h = h11 + (h01 - h11) * (1 - fx) + (h10 - h11) * (1 - fz); dhdx = (h11 - h01) / c; dhdz = -(h11 - h10) / c; }
+  const il = 1 / Math.hypot(dhdx, 1, dhdz);
+  out.h = h; out.nx = -dhdx * il; out.ny = il; out.nz = -dhdz * il; return out;
+}
+const OVERRIDES = []; // 跳台、木桥、石桥：{minX,maxX,minZ,maxZ,fn(x,z)->h|null}
+function overrideH(x, z) {
+  let best = null;
+  for (const o of OVERRIDES) { if (x < o.minX || x > o.maxX || z < o.minZ || z > o.maxZ) continue; const v = o.fn(x, z); if (v !== null && (best === null || v > best)) best = v; }
+  return best;
+}
+function groundAt(x, z, out = _gres) {
+  gridSample(x, z, out); out.wood = false;
+  const o = overrideH(x, z);
+  if (o !== null && o > out.h - 0.05) {
+    const e = 0.25, ox = overrideH(x + e, z) ?? o, oz = overrideH(x, z + e) ?? o;
+    const nx = -(ox - o) / e, nz = -(oz - o) / e, il = 1 / Math.hypot(nx, 1, nz);
+    out.h = o; out.nx = nx * il; out.ny = il; out.nz = nz * il; out.wood = true;
+  }
+  return out;
+}
+const heightAt = (x, z) => gridSample(x, z, { h: 0 }).h;
+
+/* 地表类别贴图：R=深草 G=林地 B=碎石 A=水岸/水下 （渲染与物理共用） */
+const SG = { x0: GRID.x0, z0: GRID.z0, cell: TG.surfCell };
+SG.nx = Math.round(2 * TG.innerHalfX / SG.cell) + 1; SG.nz = Math.round((TG.innerZ0 - TG.innerZ1) / SG.cell) + 1;
+SG.data = new Uint8Array(SG.nx * SG.nz * 4);
+(() => {
+  const tmp = { h: 0 };
+  for (let j = 0; j < SG.nz; j++) {
+    const z = SG.z0 - j * SG.cell, t = tOfZ(z), X = routeX(z), dX = routeDX(z), inv = 1 / Math.sqrt(1 + dX * dX);
+    const meadow = (1 - smoothstep(0.47, 0.5, t)) + smoothstep(0.72, 0.75, t) * (1 - smoothstep(0.93, 0.96, t));
+    const forest = smoothstep(0.495, 0.51, t) * (1 - smoothstep(0.695, 0.712, t));
+    for (let i = 0; i < SG.nx; i++) {
+      const x = SG.x0 + i * SG.cell, ad = Math.abs((x - X) * inv), k = (j * SG.nx + i) * 4;
+      const n = fbm(x * 0.022, z * 0.022, 3) + 0.25 * (vnoise(x * 0.13, z * 0.13) - 0.5);
+      let tall = smoothstep(0.02, 0.16, n) * smoothstep(ROAD + 1.5, ROAD + 5, ad) * clamp(meadow, 0, 1);
+      if (t < 0.03) tall *= smoothstep(-0.05, 0.03, t) * 0.6 + 0.4;
+      let fo = forest * smoothstep(ROAD + 0.6, ROAD + 2.5, ad);
+      let gr = 0;
+      const gn = fbm(x * 0.05 + 9, z * 0.05, 2);
+      if (t > 0.303 && t < 0.345) gr = smoothstep(-0.15, 0.1, gn) * (1 - smoothstep(30, 45, ad));
+      if (t > 0.555 && t < 0.625) gr = Math.max(gr, smoothstep(-0.3, -0.05, gn) * (1 - smoothstep(9, 14, ad)) * smoothstep(0.555, 0.565, t) * (1 - smoothstep(0.615, 0.625, t)));
+      let sh = 0;
+      const lvl = waterLevelAt(x, z);
+      if (lvl !== null) { const h = gridSample(x, z, tmp).h; sh = clamp((lvl + 0.7 - h) / 0.7, 0, 1); }
+      if (sh > 0.3) { tall *= 1 - sh; fo *= 1 - sh; }
+      SG.data[k] = tall * 255; SG.data[k + 1] = fo * 255; SG.data[k + 2] = gr * 255; SG.data[k + 3] = sh * 255;
+    }
+  }
+})();
+function surfSample(x, z) {
+  const i = Math.round((x - SG.x0) / SG.cell), j = Math.round((SG.z0 - z) / SG.cell);
+  if (i < 0 || j < 0 || i >= SG.nx || j >= SG.nz) return [0, 0, 0, 0];
+  const k = (j * SG.nx + i) * 4, D = SG.data; return [D[k] / 255, D[k + 1] / 255, D[k + 2] / 255, D[k + 3] / 255];
+}
+function classify(x, z, g, waterLvl) {
+  if (waterLvl !== null && waterLvl - g.h > 0.08 && !g.wood) return 'WATER';
+  if (g.wood) return 'WOOD';
+  const t = tOfZ(z), ad = Math.abs(routeD(x, z));
+  const sf = surfSample(x, z);
+  if (t > FEAT.townT + 0.008 && ad < 40) return 'TOWN';
+  if (ad < ROAD) return sf[2] > 0.5 ? 'GRAVEL' : 'DIRT';
+  if (g.ny < 0.8) return 'ROCK';
+  if (sf[2] > 0.5) return 'GRAVEL';
+  if (sf[1] > 0.5) return 'FOREST';
+  if (sf[0] > 0.5) return 'TALL';
+  return 'GRASS';
+}
+
+/* =====================================================================
+   渲染器 / 场景 / 相机 / 光照
+   ===================================================================== */
+const renderer = new THREE.WebGLRenderer({ antialias: CONFIG.quality.antialias, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+if (isTouch) document.body.classList.add('touch');
+let pixelRatio = Math.min(window.devicePixelRatio || 1, isTouch ? Math.min(1.25, CONFIG.quality.maxPixelRatio) : CONFIG.quality.maxPixelRatio);
+renderer.setPixelRatio(pixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NoToneMapping;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(CONFIG.fog.color, CONFIG.fog.density);
+scene.background = new THREE.Color(CONFIG.fog.color);
+const camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, window.innerWidth / window.innerHeight, 0.3, 12000);
+
+const SUN_DIR = new THREE.Vector3(-0.45, 0.62, 0.62).normalize(); // 午后暖阳，从镜头前侧方照来
+const sun = new THREE.DirectionalLight(CONFIG.light.sunColor, CONFIG.light.sun);
+sun.castShadow = true;
+sun.shadow.mapSize.set(CONFIG.quality.shadowMapSize, CONFIG.quality.shadowMapSize);
+const SR = CONFIG.quality.shadowRange;
+Object.assign(sun.shadow.camera, { left: -SR, right: SR, top: SR, bottom: -SR, near: 1, far: 420 });
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.04;
+scene.add(sun, sun.target);
+const hemi = new THREE.HemisphereLight(CONFIG.light.skyColor, CONFIG.light.groundColor, CONFIG.light.hemi);
+scene.add(hemi);
+
+const U = { time: { value: 0 } }; // 全局共享 uniform
+const linCol = hex => new THREE.Color(hex);
+
+/* ---------- 卡通材质：渐变色阶 + 暖色边缘光 + 可选风摆 ---------- */
+function makeGradient(steps) {
+  const data = new Uint8Array(steps.length * 4);
+  steps.forEach((v, i) => { data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = v; data[i * 4 + 3] = 255; });
+  const t = new THREE.DataTexture(data, steps.length, 1, THREE.RGBAFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true; return t;
+}
+const GRAD_HERO = makeGradient([105, 190, 255]);
+const GRAD_SOFT = makeGradient([120, 160, 205, 240, 255]);
+const RIM = { color: { value: linCol(0xfff1c8) }, strength: { value: 0.32 } };
+function toon(color, opt = {}) {
+  const m = new THREE.MeshToonMaterial({ color, gradientMap: opt.grad || GRAD_HERO, vertexColors: !!opt.vc, side: opt.side || THREE.FrontSide });
+  if (opt.emissive) { m.emissive = new THREE.Color(opt.emissive); m.emissiveIntensity = opt.ei ?? 1; }
+  const rim = opt.rim ?? 1, wind = opt.wind || 0, flag = !!opt.flag;
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uRimColor = RIM.color; sh.uniforms.uRimStrength = { value: RIM.strength.value * rim }; sh.uniforms.uTime = U.time;
+    sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'uniform vec3 uRimColor; uniform float uRimStrength;\nvoid main() {')
+      .replace('#include <opaque_fragment>', 'outgoingLight += uRimColor * pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0) * uRimStrength;\n#include <opaque_fragment>');
+    if (wind || flag) {
+      sh.vertexShader = sh.vertexShader.replace('void main() {', 'uniform float uTime;\nvoid main() {').replace('#include <begin_vertex>', `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 iw = (instanceMatrix * vec4(0.0,0.0,0.0,1.0)).xyz;
+        #else
+          vec3 iw = (modelMatrix * vec4(0.0,0.0,0.0,1.0)).xyz;
+        #endif
+        ${wind ? `float sw = max(0.0, position.y - ${gf(opt.windBase ?? 1.5)}) * ${gf(wind)};
+        transformed.x += sin(uTime*1.7 + iw.x*0.07 + iw.z*0.05) * sw;
+        transformed.z += cos(uTime*1.3 + iw.z*0.06) * sw * 0.6;` : ''}
+        ${flag ? `float fx = max(0.0, position.x);
+        transformed.z += sin(fx*4.0 - uTime*7.0 + iw.x) * 0.14 * fx + sin(fx*9.0 - uTime*11.0)*0.03*fx;
+        transformed.y -= fx*fx*0.04;` : ''}`);
+    }
+  };
+  m.customProgramCacheKey = () => 'toon' + rim + '_' + wind + '_' + flag + '_' + (opt.windBase ?? 0);
+  return m;
+}
+/* ---------- 描边：反向外壳（沿平均法线外扩） ---------- */
+const OUTLINE_COLOR = 0x2c2418;
+const _olMats = {};
+function outlineMat(th) {
+  const key = th.toFixed(3); if (_olMats[key]) return _olMats[key];
+  const m = new THREE.MeshBasicMaterial({ color: OUTLINE_COLOR, side: THREE.BackSide });
+  m.onBeforeCompile = sh => { sh.uniforms.uTh = { value: th }; sh.vertexShader = 'uniform float uTh;\n' + sh.vertexShader.replace('#include <begin_vertex>', 'vec3 transformed = position + normalize(normal) * uTh;'); };
+  m.customProgramCacheKey = () => 'ol';
+  return (_olMats[key] = m);
+}
+const _avgCache = new WeakMap();
+function averagedNormals(geo) {
+  if (_avgCache.has(geo)) return _avgCache.get(geo);
+  const g = geo.index ? geo.toNonIndexed() : geo.clone();
+  const p = g.attributes.position, n = g.attributes.normal, map = new Map();
+  for (let i = 0; i < p.count; i++) {
+    const k = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`;
+    let a = map.get(k); if (!a) map.set(k, a = [0, 0, 0, []]);
+    a[0] += n.getX(i); a[1] += n.getY(i); a[2] += n.getZ(i); a[3].push(i);
+  }
+  for (const a of map.values()) { const l = Math.hypot(a[0], a[1], a[2]) || 1; for (const i of a[3]) n.setXYZ(i, a[0] / l, a[1] / l, a[2] / l); }
+  _avgCache.set(geo, g); return g;
+}
+function addOutline(mesh, th = 0.025) {
+  const o = new THREE.Mesh(averagedNormals(mesh.geometry), outlineMat(th));
+  o.castShadow = false; o.receiveShadow = false; o.raycast = () => {}; mesh.add(o); return o;
+}
+// 便捷：创建一个部件网格
+function part(geo, mat, parent, pos, rot, scl, ol = 0.022, shadow = true) {
+  const m = new THREE.Mesh(geo, mat);
+  if (pos) m.position.set(...pos); if (rot) m.rotation.set(...rot); if (scl) (typeof scl === 'number' ? m.scale.setScalar(scl) : m.scale.set(...scl));
+  m.castShadow = shadow; m.receiveShadow = true;
+  if (ol) addOutline(m, ol);
+  if (parent) parent.add(m); return m;
+}
+// 几何合并（带顶点色），用于植被、房屋等批量静态物体
+function mergeColored(list) {
+  let total = 0; const parts = [];
+  for (const it of list) { let g = it.geo.index ? it.geo.toNonIndexed() : it.geo.clone(); if (it.matrix) g.applyMatrix4(it.matrix); parts.push([g, it]); total += g.attributes.position.count; }
+  const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), col = new Float32Array(total * 3);
+  let o = 0;
+  for (const [g, it] of parts) {
+    const p = g.attributes.position.array, n = g.attributes.normal.array, cnt = g.attributes.position.count;
+    pos.set(p, o * 3); nor.set(n, o * 3);
+    for (let i = 0; i < cnt; i++) {
+      let c = it.color;
+      if (it.colorFn) c = it.colorFn(p[i * 3], p[i * 3 + 1], p[i * 3 + 2], n[i * 3 + 1]);
+      col[(o + i) * 3] = c.r; col[(o + i) * 3 + 1] = c.g; col[(o + i) * 3 + 2] = c.b;
+    }
+    o += cnt;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3)); out.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  out.computeBoundingSphere(); return out;
+}
+const M4 = (x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+function jitterGeo(geo, amt, freq, seed = 0) {
+  const g = geo.index ? geo.toNonIndexed() : geo; const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const n = (vnoise(x * freq + seed, y * freq + z * freq * 0.7 + seed * 2.1) - 0.5) * 2 * amt;
+    const l = Math.hypot(x, y, z) || 1; p.setXYZ(i, x + x / l * n, y + y / l * n, z + z / l * n);
+  }
+  g.computeVertexNormals(); return g;
+}
+
+/* =====================================================================
+   天空：渐变 + 太阳光晕 + 卡通云
+   ===================================================================== */
+const GLSL_NOISE = `
+float hsh(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+float vn(vec2 p){ vec2 i=floor(p), f=fract(p); vec2 u=f*f*(3.0-2.0*f);
+  return mix(mix(hsh(i),hsh(i+vec2(1.0,0.0)),u.x), mix(hsh(i+vec2(0.0,1.0)),hsh(i+vec2(1.0,1.0)),u.x), u.y); }
+float fbm3(vec2 p){ return vn(p)*0.5+vn(p*2.03+1.7)*0.25+vn(p*4.1+3.1)*0.125; }
+float fbm5(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*vn(p); p=p*2.02+vec2(1.3,2.7); a*=0.5; } return s; }
+`;
+const skyMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: U.time, uSun: { value: SUN_DIR }, uHorizon: { value: linCol(CONFIG.sky.horizon) }, uZenith: { value: linCol(CONFIG.sky.zenith) },
+    uGlow: { value: linCol(CONFIG.sky.sunGlow) }, uSunCol: { value: linCol(CONFIG.sky.sun) } },
+  vertexShader: `varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`,
+  fragmentShader: `uniform float uTime; uniform vec3 uSun, uHorizon, uZenith, uGlow, uSunCol; varying vec3 vDir;
+  ${GLSL_NOISE}
+  void main(){
+    vec3 d = normalize(vDir); float h = d.y;
+    vec3 col = mix(uHorizon, uZenith, pow(smoothstep(-0.02, 0.75, h), 0.65));
+    float sd = max(dot(d, uSun), 0.0);
+    col = mix(col, uGlow, pow(sd, 5.0) * 0.45 * (1.0 - smoothstep(0.0, 0.6, h)));
+    col += uSunCol * (smoothstep(0.9992, 0.9996, sd) * 1.2 + pow(sd, 260.0) * 0.5 + pow(sd, 18.0)*0.08);
+    if (h > 0.0) {
+      vec2 cp = d.xz / (h + 0.18) * 1.6 + vec2(uTime * 0.006, uTime*0.002);
+      float c = fbm5(cp * 0.9);
+      float c2 = fbm5(cp * 0.9 + uSun.xz * 0.08);
+      float cov = smoothstep(0.50, 0.56, c) * smoothstep(0.0, 0.2, h);
+      float lit = clamp((c - c2) * 7.0 + 0.55, 0.0, 1.0);
+      vec3 cc = mix(vec3(0.62, 0.70, 0.84), vec3(1.0, 0.98, 0.93), smoothstep(0.35, 0.65, lit));
+      cc = mix(cc, uGlow*1.05, pow(sd, 3.0)*0.35);
+      col = mix(col, cc, cov * 0.92);
+    }
+    gl_FragColor = vec4(col, 1.0);
+    #include <colorspace_fragment>
+  }`,
+  side: THREE.BackSide, depthWrite: false, fog: false
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(9000, 48, 24), skyMat);
+sky.renderOrder = -10; sky.frustumCulled = false; scene.add(sky);
+
+/* 远景层叠山脊（跟随相机，营造“看不到尽头”） */
+const farRidges = new THREE.Group(); scene.add(farRidges);
+(() => {
+  const fogC = linCol(CONFIG.fog.color);
+  const layers = [[5200, 520, 0xa4c2b4, 0.38], [6400, 760, 0x9fb7c4, 0.55], [7700, 1050, 0xaabfd0, 0.7]];
+  layers.forEach(([R, amp, hex, f], li) => {
+    const seg = 360, pos = [], col = [], idx = [];
+    const c = linCol(hex).lerp(fogC, f), top = c.clone().lerp(new THREE.Color(1, 1, 1), 0.12), bot = c.clone().lerp(fogC, 0.55);
+    for (let i = 0; i <= seg; i++) {
+      const a = i / seg * Math.PI * 2;
+      const n = ridged(Math.cos(a) * 3 + li * 7, Math.sin(a) * 3 + li * 3, 5);
+      const hgt = 40 + amp * (0.25 + n * 1.25) * (0.75 + 0.25 * Math.sin(a * 3 + li));
+      pos.push(Math.sin(a) * R, -300, Math.cos(a) * R, Math.sin(a) * R, hgt, Math.cos(a) * R);
+      col.push(bot.r, bot.g, bot.b, top.r, top.g, top.b);
+      if (i < seg) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx);
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide }));
+    m.renderOrder = -5 + li; m.frustumCulled = false; farRidges.add(m);
+  });
+})();
+
+/* =====================================================================
+   地形网格：内层高精度（与物理一致）+ 外层低精度延伸到地平线
+   ===================================================================== */
+const heightTex = new THREE.DataTexture(GRID.h, GRID.nx, GRID.nz, THREE.RedFormat, THREE.FloatType);
+heightTex.minFilter = heightTex.magFilter = THREE.NearestFilter; heightTex.generateMipmaps = false; heightTex.needsUpdate = true;
+const surfTex = new THREE.DataTexture(SG.data, SG.nx, SG.nz, THREE.RGBAFormat);
+surfTex.minFilter = surfTex.magFilter = THREE.LinearFilter; surfTex.generateMipmaps = false; surfTex.needsUpdate = true;
+const GRID_U = { uHeight: { value: heightTex }, uGrid: { value: new THREE.Vector4(GRID.x0, GRID.z0, GRID.cell, 0) }, uGridN: { value: new THREE.Vector2(GRID.nx, GRID.nz) },
+  uSurf: { value: surfTex }, uSurfGrid: { value: new THREE.Vector4(SG.x0, SG.z0, SG.cell, 0) }, uSurfN: { value: new THREE.Vector2(SG.nx, SG.nz) } };
+const GLSL_GRID = `
+uniform sampler2D uHeight; uniform vec4 uGrid; uniform vec2 uGridN; uniform sampler2D uSurf; uniform vec4 uSurfGrid; uniform vec2 uSurfN;
+float terrainH(vec2 p){
+  vec2 g = vec2(p.x - uGrid.x, uGrid.y - p.y) / uGrid.z;
+  vec2 gi = clamp(floor(g), vec2(0.0), uGridN - 2.0); vec2 f = clamp(g - gi, 0.0, 1.0);
+  ivec2 i0 = ivec2(gi);
+  float h00 = texelFetch(uHeight, i0, 0).r, h10 = texelFetch(uHeight, i0 + ivec2(1,0), 0).r;
+  float h01 = texelFetch(uHeight, i0 + ivec2(0,1), 0).r, h11 = texelFetch(uHeight, i0 + ivec2(1,1), 0).r;
+  if (f.x + f.y <= 1.0) return h00 + (h10 - h00)*f.x + (h01 - h00)*f.y;
+  return h11 + (h01 - h11)*(1.0 - f.x) + (h10 - h11)*(1.0 - f.y);
+}
+vec2 surfUV(vec2 p){ return (vec2(p.x - uSurfGrid.x, uSurfGrid.y - p.y) / uSurfGrid.z + 0.5) / uSurfN; }
+float insideSurf(vec2 uv){ return step(0.0, uv.x)*step(uv.x, 1.0)*step(0.0, uv.y)*step(uv.y, 1.0); }
+`;
+const PLAZA = { x: routeX(END_Z), z: END_Z, r: 19 };
+const terrainCols = {
+  cGrassA: 0x6fae3a, cGrassB: 0x9ccc4c, cGrassC: 0xc2cf58, cTall: 0xa7b246, cDirt: 0xc79a63, cDirtDark: 0xa87a4a, cRut: 0x7d5a38, cRoadEdge: 0x8e8a44,
+  cGravel: 0xb3ab9a, cRock: 0x9aa1a3, cMoss: 0x7f9a4a, cForest: 0x4f7a34, cSand: 0xd9c592, cCobble: 0xc2b39a
+};
+const terrainMat = toon(0xffffff, { grad: GRAD_SOFT, rim: 0.0 });
+terrainMat.onBeforeCompile = sh => {
+  Object.assign(sh.uniforms, GRID_U, { uTime: U.time, uEndZ: { value: END_Z }, uPlaza: { value: new THREE.Vector3(PLAZA.x, PLAZA.z, PLAZA.r) }, uTownZ: { value: zOfT(FEAT.townT) } });
+  for (const k in terrainCols) sh.uniforms[k] = { value: linCol(terrainCols[k]) };
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; varying vec3 vWN;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = (modelMatrix * vec4(position, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * normal);');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+    varying vec3 vWP; varying vec3 vWN; uniform float uTime, uEndZ, uTownZ; uniform vec3 uPlaza;
+    uniform vec3 ${Object.keys(terrainCols).join(', ')};
+    ${GLSL_GRID}
+    ${GLSL_NOISE}
+    ${GLSL_ROUTE}
+    vec3 terrainColor(){
+      vec2 p = vWP.xz;
+      vec2 suv = surfUV(p); vec4 sf = texture2D(uSurf, clamp(suv, 0.0, 1.0)) * insideSurf(suv);
+      float n1 = fbm3(p*0.03), n2 = vn(p*0.4), n3 = vn(p*2.7);
+      vec3 g = mix(cGrassA, cGrassB, smoothstep(0.28, 0.72, n1));
+      g = mix(g, cGrassC, smoothstep(0.5, 0.8, fbm3(p*0.009 + 7.0)) * 0.55);
+      g *= 0.9 + n2*0.12 + n3*0.06;
+      g = mix(g, cGrassA*0.78, smoothstep(0.55, 0.75, fbm3(p*0.07 + 3.0)) * 0.45);
+      g = mix(g, cGrassC*1.05, smoothstep(0.62, 0.8, vn(p*0.15 + 11.0)) * 0.3);
+      g = mix(g, cTall*(0.9+n2*0.2), sf.r*0.7);
+      float wave = smoothstep(0.58, 0.92, vn(p*0.02 + vec2(uTime*0.11, uTime*0.06)));
+      g += wave * 0.07 * vec3(1.0, 1.0, 0.6) * (1.0 - sf.g);
+      vec3 col = g;
+      col = mix(col, cForest*(0.8 + n2*0.35) + vec3(0.04,0.02,0.0)*n3, sf.g);
+      col = mix(col, cSand*(0.92 + n3*0.12), sf.a);
+      float spk = step(0.55, n3);
+      col = mix(col, mix(cGravel, cGravel*0.72, spk), sf.b);
+      float steep = 1.0 - smoothstep(0.6, 0.78, vWN.y);
+      vec3 rock = mix(cRock, cRock*0.78, vn(p*0.8 + vWP.y*0.3));
+      rock *= 0.9 + 0.14*step(0.5, fract(vWP.y*0.33 + n2*0.5));
+      rock = mix(rock, cMoss, smoothstep(0.55, 0.7, vWN.y)*0.65);
+      col = mix(col, rock, steep);
+      // 土路 + 车辙 + 中间草带
+      float d = routeD(p.x, p.y), ad = abs(d);
+      float edgeN = (vn(p*0.55) - 0.5) * 0.9;
+      float roadOn = (1.0 - smoothstep(ROADHALF - 0.3, ROADHALF + 0.3, ad + edgeN)) * step(uEndZ - 70.0, p.y) * step(p.y, 160.0);
+      vec3 dirt = mix(cDirt, cDirtDark, vn(p*1.2)*0.6 + n3*0.25);
+      float rut = 1.0 - smoothstep(0.16, 0.36, abs(ad - 1.05 + (n3-0.5)*0.08));
+      dirt = mix(dirt, cRut, rut*0.6);
+      float strip = 1.0 - smoothstep(0.18, 0.45, ad + (n3 - 0.5)*0.25);
+      dirt = mix(dirt, cGrassB*0.85, strip*0.6*(1.0 - sf.b));
+      dirt = mix(dirt, cRoadEdge, smoothstep(ROADHALF - 1.0, ROADHALF, ad + edgeN)*0.45);
+      dirt = mix(dirt, cGravel*(0.78 + 0.3*spk), sf.b*0.85);
+      col = mix(col, dirt, roadOn * (1.0 - steep*0.6));
+      // 小镇石板路与广场
+      float town = smoothstep(uTownZ + 4.0, uTownZ - 4.0, p.y);
+      float pl = length(p - uPlaza.xy);
+      float cobbleArea = max(roadOn * town * step(-1.0, 0.0), 1.0 - smoothstep(uPlaza.z - 1.0, uPlaza.z + 0.5, pl));
+      vec2 cq = p * 1.4; cq.x += step(1.0, mod(floor(cq.y), 2.0)) * 0.5; vec2 cf = fract(cq) - 0.5;
+      float grout = smoothstep(0.40, 0.48, max(abs(cf.x), abs(cf.y)));
+      vec3 cob = cCobble * (0.86 + hsh(floor(cq))*0.24); cob = mix(cob, cob*0.62, grout);
+      float ring = 1.0 - smoothstep(0.2, 0.6, abs(pl - uPlaza.z*0.55));
+      cob = mix(cob, cob*vec3(1.05,0.9,0.78), ring*0.5);
+      col = mix(col, cob, cobbleArea);
+      return col;
+    }`).replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( terrainColor(), opacity );');
+};
+terrainMat.customProgramCacheKey = () => 'terrain';
+
+function buildGridGeo(nx, nz, x0, z0, cell, hfn) {
+  const pos = new Float32Array(nx * nz * 3);
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) { const k = (j * nx + i) * 3, x = x0 + i * cell, z = z0 - j * cell; pos[k] = x; pos[k + 1] = hfn(x, z, i, j); pos[k + 2] = z; }
+  const idx = new Uint32Array((nx - 1) * (nz - 1) * 6); let o = 0;
+  for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+    idx[o++] = a; idx[o++] = b; idx[o++] = c; idx[o++] = b; idx[o++] = d; idx[o++] = c;
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeVertexNormals(); g.computeBoundingSphere(); return g;
+}
+const innerTerrain = new THREE.Mesh(buildGridGeo(GRID.nx, GRID.nz, GRID.x0, GRID.z0, GRID.cell, (x, z, i, j) => GRID.h[j * GRID.nx + i]), terrainMat);
+innerTerrain.receiveShadow = true; scene.add(innerTerrain);
+const OUT = { cx: 0, cz: -1000, half: TG.outerHalf, cell: TG.outerCell };
+OUT.n = Math.round(OUT.half * 2 / OUT.cell) + 1;
+const outerTerrain = new THREE.Mesh(buildGridGeo(OUT.n, OUT.n, OUT.cx - OUT.half, OUT.cz + OUT.half, OUT.cell, (x, z) => {
+  const ix = Math.min(x - GRID.x0, GRID.x0 + (GRID.nx - 1) * GRID.cell - x), iz = Math.min(GRID.z0 - z, z - (GRID.z0 - (GRID.nz - 1) * GRID.cell));
+  const inside = smoothstep(0, 50, Math.min(ix, iz));
+  return terrainHeight(x, z) - inside * 4 - (Math.min(ix, iz) > 0 ? 0.3 : 0);
+}), terrainMat);
+outerTerrain.receiveShadow = true; scene.add(outerTerrain);
+
+/* =====================================================================
+   水面：风格化浅滩（按水深变色、岸边白沫、流动波纹）
+   ===================================================================== */
+const waterMat = new THREE.ShaderMaterial({
+  uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uShallow: { value: linCol(0x8fe0d2) }, uDeep: { value: linCol(0x2f8aa8) }, uSkyC: { value: linCol(0xd8f0ff) }, uSun: { value: SUN_DIR } }]),
+  vertexShader: `#include <common>
+    #include <fog_pars_vertex>
+    attribute vec2 aFlow; varying vec3 vWP; varying vec2 vFlow;
+    void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vWP = wp.xyz; vFlow = aFlow; vec4 mvPosition = viewMatrix * wp; gl_Position = projectionMatrix * mvPosition;
+    #include <fog_vertex>
+    }`,
+  fragmentShader: `#include <common>
+    #include <fog_pars_fragment>
+    uniform float uTime; uniform vec3 uShallow, uDeep, uSkyC, uSun; varying vec3 vWP; varying vec2 vFlow;
+    ${GLSL_GRID}
+    ${GLSL_NOISE}
+    void main(){
+      float depth = vWP.y - terrainH(vWP.xz);
+      if (depth < -0.05) discard;
+      vec3 col = mix(uShallow, uDeep, smoothstep(0.0, 1.5, depth));
+      vec2 fp = vWP.xz*0.32 - vFlow*uTime*1.1;
+      float n = vn(fp) * 0.6 + vn(fp*2.3 + uTime*0.25) * 0.4;
+      float lines = smoothstep(0.70, 0.74, n) * (1.0 - smoothstep(0.78, 0.84, n));
+      float foam = (1.0 - smoothstep(0.0, 0.22, depth + (vn(vWP.xz*1.5 + uTime)-0.5)*0.12));
+      vec3 V = normalize(cameraPosition - vWP);
+      float fres = pow(1.0 - max(V.y, 0.0), 3.0);
+      col = mix(col, uSkyC, fres * 0.55);
+      col = mix(col, vec3(1.0), clamp(foam*0.85 + lines*0.45, 0.0, 1.0));
+      vec3 Rf = reflect(-V, vec3(0.0,1.0,0.0));
+      float spec = pow(max(dot(Rf, uSun), 0.0), 120.0) * step(0.62, vn(vWP.xz*3.0 + uTime*0.8));
+      col += vec3(1.0, 0.95, 0.8) * spec * 1.6;
+      gl_FragColor = vec4(col, mix(0.6, 0.9, smoothstep(0.0, 1.2, depth)) + foam*0.1);
+      #include <colorspace_fragment>
+      #include <fog_fragment>
+    }`,
+  transparent: true, depthWrite: false, fog: true
+});
+waterMat.uniforms.uTime = U.time; Object.assign(waterMat.uniforms, GRID_U);
+(() => {
+  // 溪流 / 河：沿 x 的条带，水位按 x 变化
+  for (const st of STREAMS) {
+    const pos = [], flow = [], idx = []; let v = 0;
+    const xa = routeX(st.z) - 260, xb = routeX(st.z) + 260;
+    for (let x = xa; x <= xb; x += 3) {
+      const zc = streamZ(st, x), lvl = streamLevelAt(st, x), lvl2 = streamLevelAt(st, x + 3);
+      pos.push(x, lvl, zc - st.half * 1.25, x, lvl, zc + st.half * 1.25);
+      const dir = Math.sign(lvl2 - lvl) || 1; flow.push(-dir * 1, 0, -dir * 1, 0);
+      if (x + 3 <= xb) idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3); v += 2;
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('aFlow', new THREE.Float32BufferAttribute(flow, 2)); g.setIndex(idx);
+    const m = new THREE.Mesh(g, waterMat); m.renderOrder = 2; scene.add(m);
+  }
+  const lg = new THREE.CircleGeometry(1, 64); lg.rotateX(-Math.PI / 2);
+  const p = lg.attributes.position; for (let i = 0; i < p.count; i++) p.setXYZ(i, LAKE.cx + p.getX(i) * LAKE.rx * 1.3, LAKE.level, LAKE.cz + p.getZ(i) * LAKE.rz * 1.3);
+  const fl = new Float32Array(p.count * 2); for (let i = 0; i < p.count; i++) { fl[i * 2] = 0.15; fl[i * 2 + 1] = 0.1; }
+  lg.setAttribute('aFlow', new THREE.BufferAttribute(fl, 2)); lg.computeBoundingSphere();
+  const lm = new THREE.Mesh(lg, waterMat); lm.renderOrder = 2; scene.add(lm);
+})();
+
+/* =====================================================================
+   风吹草：GPU 实例化草叶，随相机环绕平铺；随风摆动、被玩家拨开
+   ===================================================================== */
+const PLAYER_U = { value: new THREE.Vector3() };
+function makeGrassLayer(count, tile, width, hScale, seed, nearFade = 0) {
+  const base = new THREE.BufferGeometry();
+  base.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, -0.32, 0.5, 0, 0.32, 0.5, 0, 0, 1, 0], 3));
+  base.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4]);
+  const g = new THREE.InstancedBufferGeometry(); g.index = base.index; g.attributes.position = base.attributes.position;
+  const off = new Float32Array(count * 2), rnd = new Float32Array(count * 4), r = mulberry32(seed);
+  for (let i = 0; i < count; i++) { off[i * 2] = r() * tile; off[i * 2 + 1] = r() * tile; rnd[i * 4] = r(); rnd[i * 4 + 1] = r(); rnd[i * 4 + 2] = r(); rnd[i * 4 + 3] = r(); }
+  g.setAttribute('aOffset', new THREE.InstancedBufferAttribute(off, 2)); g.setAttribute('aRand', new THREE.InstancedBufferAttribute(rnd, 4));
+  g.instanceCount = count;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uNearFade: { value: nearFade }, uTile: { value: tile }, uWidth: { value: width }, uScale: { value: hScale }, uCam: { value: new THREE.Vector3() }, uWind: { value: CONFIG.grass.wind },
+      uBase: { value: linCol(0x4f8f2a) }, uTip: { value: linCol(0xc4e070) }, uTallBase: { value: linCol(0x6a8a2c) }, uTallTip: { value: linCol(0xe6dc7a) }, uSunC: { value: linCol(0xfff0c0) } }]),
+    vertexShader: `#include <common>
+      #include <fog_pars_vertex>
+      attribute vec2 aOffset; attribute vec4 aRand;
+      uniform float uTime, uTile, uWidth, uScale, uWind, uNearFade; uniform vec3 uCam, uPlayer;
+      varying float vY, vTall, vVar, vGust;
+      ${GLSL_GRID}
+      ${GLSL_ROUTE}
+      void main(){
+        vec2 wp = uCam.xz + mod(aOffset - uCam.xz + uTile*0.5, uTile) - uTile*0.5;
+        vec2 suv = surfUV(wp); float ins = insideSurf(suv);
+        vec4 sf = texture2D(uSurf, clamp(suv, 0.0, 1.0));
+        float ad = abs(routeD(wp.x, wp.y));
+        float roadM = smoothstep(ROADHALF - 0.2, ROADHALF + 0.9, ad);
+        float strip = (1.0 - smoothstep(0.2, 0.4, ad)) * 0.7;
+        float dens = max(roadM, strip) * (1.0 - smoothstep(0.25, 0.6, sf.a)) * (1.0 - sf.b*0.9) * (1.0 - sf.g*0.7) * ins;
+        dens *= step(wp.y, 140.0) * smoothstep(${gf(PLAZA.r)}, ${gf(PLAZA.r + 3)}, length(wp - vec2(${gf(PLAZA.x)}, ${gf(PLAZA.z)})));
+        float dist = length(wp - uCam.xz);
+        float fade = (1.0 - smoothstep(uTile*0.3, uTile*0.5, dist)) * smoothstep(uNearFade, uNearFade * 1.8, dist);
+        float keep = step(aRand.w, dens) * fade;
+        float tall = sf.r;
+        float hgt = mix(0.42, 1.3, tall) * (0.55 + aRand.y*0.9) * uScale * keep;
+        if (strip > roadM) hgt *= 0.45;
+        float h = terrainH(wp);
+        float ang = aRand.x * 6.2831853;
+        vec2 side = vec2(cos(ang), sin(ang));
+        float y = position.y;
+        vec3 p = vec3(wp.x, h - 0.04, wp.y);
+        p.xz += side * position.x * uWidth * (0.7 + aRand.z*0.6) * (keep > 0.0 ? 1.0 : 0.0);
+        p.y += y * hgt;
+        float gust = sin(dot(wp, vec2(0.09, 0.05)) - uTime*1.9) * 0.5 + 0.5; gust *= gust;
+        float sway = (0.18 + 0.5*gust + 0.12*sin(uTime*3.1 + aRand.x*30.0)) * uWind;
+        vec2 windDir = vec2(0.86, 0.5);
+        vec2 pd = wp - uPlayer.xz; float pl = length(pd);
+        float push = (1.0 - smoothstep(0.5, 2.4, pl)) * (1.0 - step(3.0, abs(uPlayer.y - h)));
+        vec2 bend = windDir * sway + pd / max(pl, 0.001) * push * 1.5;
+        p.xz += bend * y * y * hgt;
+        p.y -= length(bend) * y * y * hgt * 0.3;
+        vec4 mvPosition = viewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        vY = y; vTall = tall; vVar = aRand.z; vGust = gust;
+        #include <fog_vertex>
+      }`,
+    fragmentShader: `#include <common>
+      #include <fog_pars_fragment>
+      uniform vec3 uBase, uTip, uTallBase, uTallTip, uSunC; varying float vY, vTall, vVar, vGust;
+      void main(){
+        vec3 base = mix(uBase, uTallBase, vTall), tip = mix(uTip, uTallTip, vTall);
+        vec3 c = mix(base, tip, smoothstep(0.0, 1.0, vY)) * (0.82 + vVar*0.32);
+        c += uSunC * vGust * vY * 0.12;
+        gl_FragColor = vec4(c, 1.0);
+        #include <colorspace_fragment>
+        #include <fog_fragment>
+      }`,
+    side: THREE.DoubleSide, fog: true
+  });
+  mat.uniforms.uTime = U.time; mat.uniforms.uPlayer = PLAYER_U; Object.assign(mat.uniforms, GRID_U);
+  const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; scene.add(mesh);
+  return { mesh, mat, count };
+}
+const grassNear = makeGrassLayer(CONFIG.grass.nearCount, CONFIG.grass.nearTile, CONFIG.grass.nearWidth, 1.0, 11);
+const grassMid = makeGrassLayer(CONFIG.grass.midCount, CONFIG.grass.midTile, CONFIG.grass.midWidth, 1.15, 23, 16);
+
+/* =====================================================================
+   碰撞体：圆柱(树干/石头/柱子) 与 定向盒(房屋)，空间哈希
+   ===================================================================== */
+const COL = { cell: 16, map: new Map(), stamp: 0 };
+function addCollider(c) {
+  c.st = 0; const ext = c.type === 'c' ? c.r : Math.hypot(c.hx, c.hz);
+  const i0 = Math.floor((c.x - ext) / COL.cell), i1 = Math.floor((c.x + ext) / COL.cell), j0 = Math.floor((c.z - ext) / COL.cell), j1 = Math.floor((c.z + ext) / COL.cell);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = i * 100003 + j; let a = COL.map.get(k); if (!a) COL.map.set(k, a = []); a.push(c); }
+}
+function queryColliders(x, z, r, out) {
+  out.length = 0; COL.stamp++;
+  const i0 = Math.floor((x - r) / COL.cell), i1 = Math.floor((x + r) / COL.cell), j0 = Math.floor((z - r) / COL.cell), j1 = Math.floor((z + r) / COL.cell);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = COL.map.get(i * 100003 + j); if (a) for (const c of a) if (c.st !== COL.stamp) { c.st = COL.stamp; out.push(c); } }
+  return out;
+}
+// 预留区域：不在这些地方种树放石头
+const RESERVED = [];
+const reserved = (x, z, pad = 0) => RESERVED.some(r => (x - r.x) ** 2 + (z - r.z) ** 2 < (r.r + pad) ** 2);
+const routeTangent = z => { const dx = routeDX(z); const l = Math.hypot(dx, 1); return new THREE.Vector2(-dx / l, -1 / l); }; // (x,z) 前进方向
+
+/* =====================================================================
+   植被：阔叶树 / 针叶树 / 灌木（实例化 + 分块 LOD + 描边 + 风摆）
+   ===================================================================== */
+const C = hex => linCol(hex);
+function blob(r, seed) { return averagedNormals(jitterGeo(new THREE.IcosahedronGeometry(r, 1), r * 0.16, 1.4 / r, seed)); }
+function leafColorFn(dark, light, y0, y1) { const c = new THREE.Color(); return (x, y, z, ny) => c.copy(dark).lerp(light, clamp(Math.pow(clamp((y - y0) / (y1 - y0), 0, 1), 0.8) * 0.8 + ny * 0.25, 0, 1)); }
+const TREE_GEO = (() => {
+  const trunk = C(0x7a5232), trunkD = C(0x5e3e26);
+  const broadHi = mergeColored([
+    { geo: new THREE.CylinderGeometry(0.2, 0.36, 3.6, 7), matrix: M4(0, 1.8, 0), colorFn: (x, y) => trunkD.clone().lerp(trunk, clamp(y / 3, 0, 1)) },
+    { geo: new THREE.CylinderGeometry(0.07, 0.12, 1.6, 5), matrix: M4(0.55, 3.3, 0, 0, 0, -0.8), color: trunk },
+    { geo: new THREE.CylinderGeometry(0.07, 0.12, 1.5, 5), matrix: M4(-0.5, 3.2, 0.2, 0.3, 0, 0.8), color: trunk },
+    { geo: blob(1.9, 1), matrix: M4(0, 4.6, 0), colorFn: leafColorFn(C(0x3c7a2c), C(0x9ccd4e), 2.8, 6.6) },
+    { geo: blob(1.35, 2), matrix: M4(1.25, 4.0, 0.4), colorFn: leafColorFn(C(0x3c7a2c), C(0x9ccd4e), 2.8, 6.6) },
+    { geo: blob(1.45, 3), matrix: M4(-1.15, 4.2, -0.4), colorFn: leafColorFn(C(0x3c7a2c), C(0x9ccd4e), 2.8, 6.6) },
+    { geo: blob(1.2, 4), matrix: M4(0.2, 5.8, -0.3), colorFn: leafColorFn(C(0x3c7a2c), C(0x9ccd4e), 2.8, 6.6) },
+  ]);
+  const conHi = (() => {
+    const list = [{ geo: new THREE.CylinderGeometry(0.14, 0.28, 2.4, 6), matrix: M4(0, 1.2, 0), color: trunkD }];
+    for (let k = 0; k < 4; k++) list.push({ geo: averagedNormals(jitterGeo(new THREE.ConeGeometry(2.1 - k * 0.42, 2.7, 9, 1), 0.12, 1.2, k + 5)), matrix: M4(0, 2.4 + k * 1.5, 0), colorFn: leafColorFn(C(0x2a5e3c), C(0x6aa457), 1.5, 8.5) });
+    return mergeColored(list);
+  })();
+  const bushHi = mergeColored([
+    { geo: blob(0.95, 7), matrix: M4(0, 0.65, 0), colorFn: leafColorFn(C(0x3f7d2c), C(0x9fd055), -0.2, 1.7) },
+    { geo: blob(0.7, 8), matrix: M4(0.8, 0.5, 0.2), colorFn: leafColorFn(C(0x3f7d2c), C(0x9fd055), -0.2, 1.7) },
+    { geo: blob(0.65, 9), matrix: M4(-0.7, 0.45, -0.25), colorFn: leafColorFn(C(0x3f7d2c), C(0x9fd055), -0.2, 1.7) },
+  ]);
+  const broadLo = mergeColored([
+    { geo: new THREE.CylinderGeometry(0.22, 0.36, 3.6, 5), matrix: M4(0, 1.8, 0), color: trunk },
+    { geo: new THREE.IcosahedronGeometry(2.6, 0), matrix: M4(0, 4.7, 0, 0, 0, 0, 1, 0.9, 1), colorFn: leafColorFn(C(0x447f30), C(0x8cc04a), 2.5, 7) },
+  ]);
+  const conLo = mergeColored([
+    { geo: new THREE.CylinderGeometry(0.15, 0.28, 2.4, 4), matrix: M4(0, 1.2, 0), color: trunkD },
+    { geo: new THREE.ConeGeometry(2.2, 7, 6), matrix: M4(0, 5.2, 0), colorFn: leafColorFn(C(0x2d5f3c), C(0x5f9a52), 1.7, 8.7) },
+  ]);
+  const bushLo = mergeColored([{ geo: new THREE.IcosahedronGeometry(1.1, 0), matrix: M4(0, 0.6, 0), colorFn: leafColorFn(C(0x43802e), C(0x8fc04e), -0.3, 1.7) }]);
+  return { broad: [broadHi, broadLo], conifer: [conHi, conLo], bush: [bushHi, bushLo] };
+})();
+const treeMatHi = toon(0xffffff, { vc: true, wind: 0.02, windBase: 2.0, rim: 0.7 });
+const treeMatLo = toon(0xffffff, { vc: true, rim: 0.4 });
+const bushMat = toon(0xffffff, { vc: true, wind: 0.03, windBase: 0.2, rim: 0.7 });
+const TREES = { broad: [], conifer: [], bush: [] };
+const spaceHash = new Map();
+function spaceFree(x, z, r) {
+  const ci = Math.floor(x / 4), cj = Math.floor(z / 4);
+  for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) { const a = spaceHash.get(i * 7919 + j); if (a) for (const p of a) if ((p[0] - x) ** 2 + (p[1] - z) ** 2 < (p[2] + r) ** 2) return false; }
+  return true;
+}
+function spaceAdd(x, z, r) { const k = Math.floor(x / 4) * 7919 + Math.floor(z / 4); let a = spaceHash.get(k); if (!a) spaceHash.set(k, a = []); a.push([x, z, r]); }
+function canPlace(x, z, roadClear, r) {
+  const ad = Math.abs(routeD(x, z)); if (ad < ROAD + roadClear) return false;
+  const g = gridSample(x, z, { h: 0 }); if (g.ny < 0.72) return false;
+  const lvl = waterLevelAt(x, z); if (lvl !== null && lvl > g.h - 0.6) return false;
+  if (reserved(x, z, r)) return false;
+  if (!spaceFree(x, z, r)) return false;
+  return true;
+}
+function plantTree(type, x, z, s, collide = true, farOnly = false) {
+  const y = heightAt(x, z) - 0.15;
+  TREES[type].push({ x, y, z, s, ry: rr(0, 6.28), tint: new THREE.Color(rr(0.88, 1.08), rr(0.9, 1.08), rr(0.85, 1.0)), farOnly });
+  spaceAdd(x, z, type === 'bush' ? 1.0 * s : 1.4 * s);
+  if (collide && type !== 'bush') addCollider({ type: 'c', x, z, r: (type === 'broad' ? 0.42 : 0.34) * s + 0.1, top: y + 50 });
+}
+function placeVegetation() {
+  const zF0 = zOfT(0.5), zF1 = zOfT(0.705);
+  // 密林：林间路两侧夹道
+  let tries = 0, placed = 0;
+  while (placed < CONFIG.trees.forest && tries++ < CONFIG.trees.forest * 8) {
+    const z = rr(zF1 - 30, zF0 + 30), side = rand() < 0.5 ? -1 : 1, d = side * (6.2 + Math.pow(rand(), 1.5) * 110);
+    const xx = routeX(z) + d * Math.sqrt(1 + routeDX(z) ** 2);
+    const tt = tOfZ(z), edge = smoothstep(0.49, 0.52, tt) * (1 - smoothstep(0.69, 0.715, tt));
+    if (rand() > edge * 0.95 + 0.05) continue;
+    const type = rand() < 0.55 ? 'conifer' : (Math.abs(d) < 10 && rand() < 0.4 ? 'bush' : 'broad');
+    const s = type === 'bush' ? rr(0.8, 1.3) : rr(0.95, 1.6);
+    if (!canPlace(xx, z, type === 'bush' ? 1.8 : 3.6, type === 'bush' ? 0.8 : 1.1 * s)) continue;
+    plantTree(type, xx, z, s); placed++;
+  }
+  // 草原树丛（成簇，留出开阔草坡）
+  for (let gI = 0; gI < 80; gI++) {
+    const t = rand() < 0.62 ? rr(-0.06, 0.48) : rr(0.72, 0.95);
+    const z = zOfT(t), W = widthAt(t), side = rand() < 0.5 ? -1 : 1;
+    const d = side * rr(W * 0.55, W + 160);
+    const cx = routeX(z) + d, n = 2 + Math.floor(rand() * 8);
+    for (let k = 0; k < n; k++) {
+      const x = cx + rr(-14, 14), zz = z + rr(-14, 14);
+      const type = rand() < 0.62 ? 'broad' : rand() < 0.5 ? 'conifer' : 'bush';
+      const s = type === 'bush' ? rr(0.8, 1.4) : rr(0.9, 1.7);
+      if (canPlace(x, zz, 7, 1.2 * s)) plantTree(type, x, zz, s);
+    }
+  }
+  // 路边孤树与灌木（地标感）
+  for (let i = 0; i < CONFIG.trees.meadow; i++) {
+    const t = rand() < 0.65 ? rr(0, 0.49) : rr(0.72, 0.96), z = zOfT(t), side = rand() < 0.5 ? -1 : 1;
+    const d = side * rr(8, widthAt(t) * 0.9), x = routeX(z) + d;
+    const type = rand() < 0.55 ? 'bush' : 'broad', s = type === 'bush' ? rr(0.7, 1.3) : rr(1.0, 1.8);
+    if (canPlace(x, z, type === 'bush' ? 3 : 6, 1.2 * s)) plantTree(type, x, z, s);
+  }
+  // 远山上的树（只用低模）
+  for (let i = 0; i < CONFIG.trees.far; i++) {
+    const z = rr(-3200, 900), side = rand() < 0.5 ? -1 : 1, t = tOfZ(z);
+    const d = side * rr(widthAt(clamp(t, -0.1, 1.1)) + 120, 1300), x = routeX(clamp(z, -2300, 250)) + d;
+    if (fbm(x * 0.004, z * 0.004, 3) < 0.02) continue;
+    const h = terrainHeight(x, z), type = rand() < 0.6 ? 'conifer' : 'broad', s = rr(1.1, 2.0);
+    TREES[type].push({ x, y: h - 0.3, z, s, ry: rr(0, 6.28), tint: new THREE.Color(rr(0.85, 1.05), rr(0.9, 1.05), rr(0.85, 1.0)), farOnly: true });
+  }
+}
+const LOD_CHUNKS = [];
+function buildTreeMeshes() {
+  const CH = 220, dummy = new THREE.Object3D();
+  for (const type of ['broad', 'conifer', 'bush']) {
+    const buckets = new Map();
+    for (const tr of TREES[type]) { const k = Math.floor(tr.x / CH) + ',' + Math.floor(tr.z / CH) + (tr.farOnly ? 'f' : ''); let b = buckets.get(k); if (!b) buckets.set(k, b = []); b.push(tr); }
+    for (const [k, list] of buckets) {
+      const far = k.endsWith('f');
+      const mk = (geo, mat, cast) => {
+        const im = new THREE.InstancedMesh(geo, mat, list.length);
+        list.forEach((tr, i) => { dummy.position.set(tr.x, tr.y, tr.z); dummy.rotation.set(0, tr.ry, 0); dummy.scale.setScalar(tr.s); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); if (im.instanceColor !== undefined || mat.vertexColors) im.setColorAt(i, tr.tint); });
+        if (im.instanceColor) im.instanceColor.needsUpdate = true;
+        im.castShadow = cast; im.receiveShadow = true; im.computeBoundingSphere(); scene.add(im); return im;
+      };
+      const lo = mk(TREE_GEO[type][1], treeMatLo, false);
+      let hi = null, ol = null;
+      if (!far) {
+        hi = mk(TREE_GEO[type][0], type === 'bush' ? bushMat : treeMatHi, true);
+        ol = new THREE.InstancedMesh(averagedNormals(TREE_GEO[type][0]), outlineMat(type === 'bush' ? 0.05 : 0.07), list.length);
+        list.forEach((tr, i) => { dummy.position.set(tr.x, tr.y, tr.z); dummy.rotation.set(0, tr.ry, 0); dummy.scale.setScalar(tr.s); dummy.updateMatrix(); ol.setMatrixAt(i, dummy.matrix); });
+        ol.computeBoundingSphere(); scene.add(ol);
+      }
+      const cx = list.reduce((a, t) => a + t.x, 0) / list.length, cz = list.reduce((a, t) => a + t.z, 0) / list.length;
+      LOD_CHUNKS.push({ cx, cz, hi, ol, lo, state: -1 });
+    }
+  }
+}
+function updateLOD(cam) {
+  const D = CONFIG.trees.highLodDist;
+  for (const c of LOD_CHUNKS) {
+    const d = Math.hypot(cam.x - c.cx, cam.z - c.cz), st = c.hi && d < D ? 1 : 0;
+    if (st !== c.state) { c.state = st; c.lo.visible = !st; if (c.hi) { c.hi.visible = !!st; c.ol.visible = !!st && outlinesOn; } }
+  }
+}
+let outlinesOn = true;
+
+/* =====================================================================
+   岩石：实例化、长青苔，较大的为实心碰撞
+   ===================================================================== */
+const ROCKS = [];
+const rockGeos = [0, 1, 2].map(k => {
+  const g = averagedNormals(jitterGeo(new THREE.IcosahedronGeometry(1, 1), 0.28, 1.3, 30 + k * 7));
+  const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, Math.max(p.getY(i) * (0.7 + k * 0.1), -0.35));
+  g.computeVertexNormals();
+  const base = C(0x8f989e), dark = C(0x6c7378), moss = C(0x86a24c), col = new Float32Array(p.count * 3), n = g.attributes.normal, c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) { c.copy(dark).lerp(base, clamp(p.getY(i) + 0.6, 0, 1)); c.lerp(moss, smoothstep(0.55, 0.85, n.getY(i)) * 0.85); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3)); return g;
+});
+function addRock(x, z, s, collide = true, sy = 1) {
+  const y = heightAt(x, z);
+  ROCKS.push({ x, y: y - 0.15 * s, z, s, sy, ry: rr(0, 6.28), rx: rr(-0.2, 0.2), k: Math.floor(rand() * 3) });
+  spaceAdd(x, z, s * 1.1);
+  if (collide && s > 0.45) addCollider({ type: 'c', x, z, r: s * 0.95, top: y + s * 0.62 * sy + (s > 1.4 ? 50 : 0) });
+}
+function placeRocks() {
+  // 陡坡岩石露头
+  for (let i = 0; i < 2600; i++) {
+    const z = rr(-2250, 150), x = routeX(z) + rr(-260, 260), g = gridSample(x, z, { h: 0 });
+    if (g.ny > 0.86 || g.ny < 0.45) continue; if (Math.abs(routeD(x, z)) < ROAD + 3) continue; if (reserved(x, z, 3)) continue;
+    const s = rr(1.2, 4.2); if (!spaceFree(x, z, s)) continue; addRock(x, z, s);
+  }
+  // 断崖边成排巨石
+  for (let i = 0; i < 40; i++) {
+    const z = zOfT(FEAT.cliff.t) + rr(-6, 6), side = rand() < 0.5 ? -1 : 1, x = routeX(z) + side * rr(11, 60), s = rr(1.6, 3.6);
+    if (spaceFree(x, z, s) && !reserved(x, z, 2)) addRock(x, z, s);
+  }
+  // 草原上的矮石（马可以跳过）
+  for (let i = 0; i < 360; i++) {
+    const t = rand() < 0.7 ? rr(0, 0.48) : rr(0.72, 0.94), z = zOfT(t), x = routeX(z) + (rand() < 0.5 ? -1 : 1) * rr(ROAD + 2.5, widthAt(t) * 0.95);
+    const s = rand() < 0.75 ? rr(0.5, 1.0) : rr(1.2, 2.2);
+    if (canPlace(x, z, 2.5, s)) addRock(x, z, s, true, s < 1.05 ? 0.8 : 1);
+  }
+  // 溪边卵石
+  for (const st of STREAMS) for (let i = 0; i < 70; i++) {
+    const x = routeX(st.z) + rr(-120, 120), z = streamZ(st, x) + (rand() < 0.5 ? -1 : 1) * rr(st.half * 0.9, st.half * 1.6);
+    if (Math.abs(routeD(x, z)) > ROAD + 4 && !reserved(x, z, 1)) addRock(x, z, rr(0.3, 0.8), false);
+  }
+}
+function buildRockMeshes() {
+  const mat = toon(0xffffff, { vc: true, grad: GRAD_HERO, rim: 0.5 }), dummy = new THREE.Object3D();
+  for (let k = 0; k < 3; k++) {
+    const list = ROCKS.filter(r => r.k === k); if (!list.length) continue;
+    const im = new THREE.InstancedMesh(rockGeos[k], mat, list.length), ol = new THREE.InstancedMesh(averagedNormals(rockGeos[k]), outlineMat(0.05), list.length);
+    list.forEach((r, i) => { dummy.position.set(r.x, r.y, r.z); dummy.rotation.set(r.rx, r.ry, 0); dummy.scale.set(r.s, r.s * r.sy, r.s); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); ol.setMatrixAt(i, dummy.matrix); });
+    im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); ol.computeBoundingSphere(); scene.add(im, ol);
+  }
+}
+
+/* =====================================================================
+   地标与路线元素：跳台、木桥、石桥、检查点旗门、起点、林间豁口、风车、矮篱、小镇
+   ===================================================================== */
+const _box = {}; const boxG = (w, h, d) => _box[`${w},${h},${d}`] ||= new THREE.BoxGeometry(w, h, d);
+const _dum = new THREE.Object3D(); _dum.rotation.order = 'YXZ';
+const MY = (x, y, z, yaw = 0, pitch = 0, roll = 0, sx = 1, sy = 1, sz = 1) => { _dum.position.set(x, y, z); _dum.rotation.set(pitch, yaw, roll); _dum.scale.set(sx, sy, sz); _dum.updateMatrix(); return _dum.matrix.clone(); };
+const STATIC_ITEMS = []; // 合并为一个静态网格（带描边）
+const WOOD = [C(0xb07a45), C(0x9a6638), C(0xc08a52)], WOOD_D = C(0x6b4a2e), STONE = [C(0xcfc6b2), C(0xbdb39d), C(0xd9d1bf)];
+const yawOf = T => Math.atan2(T.x, T.y);
+
+function addRamp(zStart, len = 8, wid = 4.4, hgt = 1.35, dOff = 0) {
+  const T = routeTangent(zStart), N = new THREE.Vector2(-T.y, T.x);
+  const Sx = routeX(zStart) + N.x * dOff, Sz = zStart + N.y * dOff, h0 = heightAt(Sx, Sz);
+  const top = u => h0 + hgt * Math.pow(clamp(u / len, 0, 1), 1.25);
+  OVERRIDES.push({ minX: Sx - len - wid, maxX: Sx + len + wid, minZ: Sz - len - wid, maxZ: Sz + len + wid,
+    fn: (x, z) => { const dx = x - Sx, dz = z - Sz, u = dx * T.x + dz * T.y, v = dx * N.x + dz * N.y; return (u < 0 || u > len || Math.abs(v) > wid / 2) ? null : top(u); } });
+  const yaw = yawOf(T), steps = Math.round(len / 0.5);
+  for (let i = 0; i < steps; i++) {
+    const u0 = i / steps * len, u1 = (i + 1) / steps * len, um = (u0 + u1) / 2, y0 = top(u0), y1 = top(u1);
+    const pitch = -Math.atan2(y1 - y0, u1 - u0), px = Sx + T.x * um, pz = Sz + T.y * um;
+    STATIC_ITEMS.push({ geo: boxG(wid, 0.12, 0.47), matrix: MY(px, (y0 + y1) / 2 - 0.06, pz, yaw, pitch), color: WOOD[i % 3] });
+  }
+  // 支撑
+  for (const f of [0.35, 0.7, 1]) for (const s of [-1, 1]) {
+    const u = f * len - 0.2, hh = top(u) - heightAt(Sx + T.x * u, Sz + T.y * u) + 0.3;
+    STATIC_ITEMS.push({ geo: boxG(0.22, 1, 0.22), matrix: MY(Sx + T.x * u + N.x * s * (wid / 2 - 0.15), top(u) - hh / 2, Sz + T.y * u + N.y * s * (wid / 2 - 0.15), yaw, 0, 0, 1, hh, 1), color: WOOD_D });
+  }
+  for (const s of [-1, 1]) STATIC_ITEMS.push({ geo: boxG(0.18, 0.24, len), matrix: MY(Sx + T.x * len / 2 + N.x * s * wid / 2, (top(0) + top(len)) / 2, Sz + T.y * len / 2 + N.y * s * wid / 2, yaw, -Math.atan2(hgt, len) * 0.9), color: WOOD_D });
+  RESERVED.push({ x: Sx + T.x * len / 2, z: Sz + T.y * len / 2, r: len * 0.75 });
+}
+
+function addBridge(st, kind) {
+  const T = routeTangent(st.z), N = new THREE.Vector2(-T.y, T.x), cx = routeX(st.z), cz = st.z;
+  const Lb = st.half * 2.7 + 8, wid = kind === 'wood' ? 6.0 : 7.0;
+  const Ax = cx - T.x * Lb / 2, Az = cz - T.y * Lb / 2;
+  const hA = heightAt(Ax, Az), hB = heightAt(cx + T.x * Lb / 2, cz + T.y * Lb / 2), lvl = streamLevelAt(st, cx);
+  const arch = Math.max(0.5, lvl + (kind === 'wood' ? 1.1 : 1.5) - (hA + hB) / 2);
+  const deck = u => lerp(hA, hB, u / Lb) + arch * Math.sin(Math.PI * clamp(u / Lb, 0, 1));
+  OVERRIDES.push({ minX: Math.min(Ax, Ax + T.x * Lb) - wid, maxX: Math.max(Ax, Ax + T.x * Lb) + wid, minZ: Math.min(Az, Az + T.y * Lb) - wid, maxZ: Math.max(Az, Az + T.y * Lb) + wid,
+    fn: (x, z) => { const dx = x - Ax, dz = z - Az, u = dx * T.x + dz * T.y, v = dx * N.x + dz * N.y; return (u < 0 || u > Lb || Math.abs(v) > wid / 2) ? null : deck(u); } });
+  const yaw = yawOf(T), steps = Math.round(Lb / 0.55);
+  for (let i = 0; i < steps; i++) {
+    const u0 = i / steps * Lb, u1 = (i + 1) / steps * Lb, um = (u0 + u1) / 2, y0 = deck(u0), y1 = deck(u1), pitch = -Math.atan2(y1 - y0, u1 - u0);
+    const px = Ax + T.x * um, pz = Az + T.y * um, ym = (y0 + y1) / 2;
+    if (kind === 'wood') {
+      STATIC_ITEMS.push({ geo: boxG(wid, 0.14, 0.5), matrix: MY(px, ym - 0.07, pz, yaw, pitch), color: WOOD[(i * 7) % 3] });
+      for (const s of [-1, 1]) {
+        STATIC_ITEMS.push({ geo: boxG(0.22, 0.3, (u1 - u0) * 1.05), matrix: MY(px + N.x * s * wid / 2, ym - 0.15, pz + N.y * s * wid / 2, yaw, pitch), color: WOOD_D });
+        STATIC_ITEMS.push({ geo: boxG(0.1, 0.1, (u1 - u0) * 1.05), matrix: MY(px + N.x * s * (wid / 2 - 0.05), ym + 1.0, pz + N.y * s * (wid / 2 - 0.05), yaw, pitch), color: WOOD[1] });
+        if (i % 4 === 0) STATIC_ITEMS.push({ geo: boxG(0.14, 1.1, 0.14), matrix: MY(px + N.x * s * (wid / 2 - 0.05), ym + 0.5, pz + N.y * s * (wid / 2 - 0.05), yaw), color: WOOD_D });
+      }
+    } else {
+      STATIC_ITEMS.push({ geo: boxG(wid, 0.35, 0.56), matrix: MY(px, ym - 0.17, pz, yaw, pitch), color: STONE[(i * 5) % 3] });
+      for (const s of [-1, 1]) STATIC_ITEMS.push({ geo: boxG(0.45, 0.85, (u1 - u0) * 1.02), matrix: MY(px + N.x * s * (wid / 2 + 0.1), ym + 0.35, pz + N.y * s * (wid / 2 + 0.1), yaw, pitch), color: STONE[(i * 3 + 1) % 3] });
+    }
+    if (i % 2 === 0 && um > 3 && um < Lb - 3) for (const s of [-1, 1]) addCollider({ type: 'c', x: px + N.x * s * (wid / 2 + 0.2), z: pz + N.y * s * (wid / 2 + 0.2), r: 0.32, top: ym + 1.1 });
+  }
+  for (const f of [0.3, 0.5, 0.7]) for (const s of [-1, 1]) {
+    const u = f * Lb, x = Ax + T.x * u + N.x * s * (wid / 2 - 0.3), z = Az + T.y * u + N.y * s * (wid / 2 - 0.3), yb = heightAt(x, z) - 0.5, yt = deck(u) - 0.1;
+    if (yt - yb > 0.3) STATIC_ITEMS.push({ geo: kind === 'wood' ? new THREE.CylinderGeometry(0.16, 0.2, 1, 7) : boxG(0.9, 1, 1.2), matrix: MY(x, (yt + yb) / 2, z, yaw, 0, 0, 1, yt - yb, 1), color: kind === 'wood' ? WOOD_D : STONE[1] });
+  }
+  RESERVED.push({ x: cx, z: cz, r: Lb * 0.6 });
+}
+
+/* 旗帜（顶点着色器飘动） */
+const flagMats = {};
+const flagGeo = (() => { const g = new THREE.PlaneGeometry(1.7, 0.95, 14, 4); g.translate(0.85, 0, 0); return g; })();
+function flag(color, parent, x, y, z, yaw) {
+  const m = flagMats[color] ||= toon(color, { flag: true, side: THREE.DoubleSide, rim: 0.4 });
+  const f = new THREE.Mesh(flagGeo, m); f.position.set(x, y, z); f.rotation.y = yaw; f.castShadow = true; parent.add(f); return f;
+}
+const decor = new THREE.Group(); scene.add(decor);
+function bunting(ax, ay, az, bx, by, bz, colors, sag = 0.9) {
+  const n = Math.max(6, Math.round(Math.hypot(bx - ax, bz - az) / 0.8));
+  const tri = new THREE.BufferGeometry(); tri.setAttribute('position', new THREE.Float32BufferAttribute([-0.25, 0, 0, 0.25, 0, 0, 0, -0.5, 0], 3)); tri.computeVertexNormals();
+  const yaw = Math.atan2(bx - ax, bz - az) + Math.PI / 2;
+  for (let i = 1; i < n; i++) {
+    const t = i / n, x = lerp(ax, bx, t), z = lerp(az, bz, t), y = lerp(ay, by, t) - Math.sin(Math.PI * t) * sag;
+    STATIC_ITEMS.push({ geo: tri, matrix: MY(x, y, z, yaw), color: C(colors[i % colors.length]), double: true });
+  }
+  STATIC_ITEMS.push({ geo: new THREE.CylinderGeometry(0.015, 0.015, 1, 3), matrix: (() => { const m = new THREE.Matrix4(); const a = new THREE.Vector3(ax, ay, az), b = new THREE.Vector3(bx, by - sag * 0.7, bz); const mid = a.clone().add(b).multiplyScalar(0.5); const dir = b.clone().sub(a); m.compose(mid, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize()), new THREE.Vector3(1, dir.length(), 1)); return m; })(), color: C(0x5a4a3a) });
+}
+function bannerTex(text, bg = '#d0573a', fg = '#fff6dc') {
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128; const g = cv.getContext('2d');
+  g.fillStyle = bg; g.fillRect(0, 0, 512, 128); g.strokeStyle = 'rgba(255,240,200,.7)'; g.lineWidth = 6; g.strokeRect(10, 10, 492, 108);
+  g.fillStyle = fg; g.font = 'bold 66px "PingFang SC","Noto Sans SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 68);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+}
+function gateArch(z, label, colors, high = 5.6, stone = false) {
+  const T = routeTangent(z), N = new THREE.Vector2(-T.y, T.x), cx = routeX(z), yaw = yawOf(T), half = ROAD + (stone ? 2.3 : 1.3);
+  const pts = [-1, 1].map(s => { const x = cx + N.x * s * half, zz = z + N.y * s * half; return [x, heightAt(x, zz), zz]; });
+  for (const [x, y, zz] of pts) {
+    if (stone) STATIC_ITEMS.push({ geo: boxG(1.1, high, 1.1), matrix: MY(x, y + high / 2 - 0.3, zz, yaw), color: STONE[0] }, { geo: boxG(1.4, 0.5, 1.4), matrix: MY(x, y + high, zz, yaw), color: STONE[1] }, { geo: new THREE.ConeGeometry(0.9, 1.4, 4), matrix: MY(x, y + high + 0.95, zz, yaw + Math.PI / 4), color: C(0x4f6f95) });
+    else STATIC_ITEMS.push({ geo: new THREE.CylinderGeometry(0.16, 0.2, high, 8), matrix: MY(x, y + high / 2, zz), color: WOOD_D }, { geo: new THREE.SphereGeometry(0.26, 10, 8), matrix: MY(x, y + high + 0.15, zz), color: C(0xe8b447) });
+    addCollider({ type: 'c', x, z: zz, r: stone ? 0.8 : 0.3, top: y + 50 });
+  }
+  const yTop = Math.max(pts[0][1], pts[1][1]) + high - 0.6;
+  STATIC_ITEMS.push({ geo: boxG(half * 2 + 1.2, 0.3, 0.3), matrix: MY(cx, yTop, z, yaw), color: stone ? STONE[2] : WOOD[1] });
+  if (label) {
+    const b = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.15), new THREE.MeshToonMaterial({ map: bannerTex(label, stone ? '#4f6f95' : '#d0573a'), gradientMap: GRAD_HERO, side: THREE.DoubleSide }));
+    b.position.set(cx, yTop - 1.0, z); b.rotation.y = yaw + Math.PI; decor.add(b);
+  }
+  bunting(pts[0][0], yTop + 0.1, pts[0][2], pts[1][0], yTop + 0.1, pts[1][2], colors, 0.25);
+  RESERVED.push({ x: cx, z, r: half + 2 });
+}
+const CHECKS = CONFIG.route.checkpointsT.map((t, i) => ({ t, z: zOfT(t), s: sAtZ(zOfT(t)), i }));
+const CP_COLORS = [0xd0573a, 0xe8b447, 0x4fb3a9, 0xe07a3a];
+function checkpointPoles(cp) {
+  const T = routeTangent(cp.z), N = new THREE.Vector2(-T.y, T.x), cx = routeX(cp.z), yaw = yawOf(T), half = ROAD + 1.6, H = 6.2;
+  const pts = [];
+  for (const s of [-1, 1]) {
+    const x = cx + N.x * s * half, z = cp.z + N.y * s * half, y = heightAt(x, z); pts.push([x, y, z]);
+    STATIC_ITEMS.push({ geo: new THREE.CylinderGeometry(0.11, 0.16, H, 8), matrix: MY(x, y + H / 2, z), color: WOOD_D }, { geo: new THREE.SphereGeometry(0.22, 10, 8), matrix: MY(x, y + H + 0.1, z), color: C(0xe8b447) });
+    flag(CP_COLORS[cp.i % 4], decor, x, y + H - 0.6, z, yaw + (s > 0 ? 0 : Math.PI));
+    addCollider({ type: 'c', x, z, r: 0.3, top: y + 50 });
+    // 石堆基座
+    STATIC_ITEMS.push({ geo: new THREE.DodecahedronGeometry(0.55, 0), matrix: MY(x, y + 0.15, z, rr(0, 3), 0, 0, 1, 0.6, 1), color: STONE[1] });
+  }
+  bunting(pts[0][0], Math.max(pts[0][1], pts[1][1]) + H - 0.3, pts[0][2], pts[1][0], Math.max(pts[0][1], pts[1][1]) + H - 0.3, pts[1][2], [CP_COLORS[cp.i % 4], 0xfff1d0, 0xe8b447], 1.1);
+  RESERVED.push({ x: cx, z: cp.z, r: half + 1.5 });
+}
+function fenceLine(x0, z0, x1, z1) {
+  const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len / 2.4)), yaw = Math.atan2(x1 - x0, z1 - z0);
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, x = lerp(x0, x1, t), z = lerp(z0, z1, t), y = heightAt(x, z);
+    STATIC_ITEMS.push({ geo: boxG(0.16, 1.2, 0.16), matrix: MY(x, y + 0.5, z, yaw), color: WOOD_D });
+    if (i < n) {
+      const xn = lerp(x0, x1, (i + 1) / n), zn = lerp(z0, z1, (i + 1) / n), yn = heightAt(xn, zn), seg = Math.hypot(xn - x, zn - z, yn - y);
+      const pitch = -Math.atan2(yn - y, Math.hypot(xn - x, zn - z));
+      for (const hh of [0.45, 0.85]) STATIC_ITEMS.push({ geo: boxG(0.07, 0.12, seg), matrix: MY((x + xn) / 2, (y + yn) / 2 + hh, (z + zn) / 2, yaw, pitch), color: WOOD[i % 3] });
+    }
+  }
+  for (let k = 0; k <= Math.round(len); k++) { const t = k / Math.max(1, Math.round(len)), x = lerp(x0, x1, t), z = lerp(z0, z1, t); addCollider({ type: 'c', x, z, r: 0.35, top: heightAt(x, z) + 1.0 }); spaceAdd(x, z, 0.8); }
+}
+const UPDRAFTS = [{ z: -458, d: -15 }, { z: -748, d: 9 }, { z: -1652, d: -17 }, { z: -1755, d: 13 }].map(u => {
+  const x = routeX(u.z) + u.d; return { x, z: u.z, r: 4.6, y: heightAt(x, u.z), top: 18 };
+});
+let windmillBlades = null, balloon = null;
+
+function buildLandmarks() {
+  // 起点：出发拱门、巨石、孤树
+  gateArch(-12, '出 发', [0xd0573a, 0xfff1d0, 0x4fb3a9, 0xe8b447]);
+  const bx = routeX(4) - 19, bz = 4; addRock(bx, bz, 4.2); const by = heightAt(bx, bz);
+  ROCKS.push({ x: bx + 0.6, y: by + 4.6, z: bz - 0.3, s: 2.6, sy: 1, ry: 1.2, rx: 0.2, k: 1 });
+  plantTree('broad', routeX(14) + 17, 14, 2.1);
+  // 跳台
+  for (const z of [-258, -466, -1238, -1772]) addRamp(z);
+  // 桥
+  addBridge(STREAMS[0], 'wood'); addBridge(STREAMS[1], 'stone');
+  // 检查点
+  CHECKS.forEach(checkpointPoles);
+  // 矮篱（骑马可跳过）
+  for (const fz of [-300, -1615]) {
+    const t = tOfZ(fz), W = widthAt(t), X = routeX(fz), k = Math.sqrt(1 + routeDX(fz) ** 2);
+    fenceLine(X + (ROAD + 3) * k, fz, X + W * 0.95 * k, fz - 6); fenceLine(X - (ROAD + 3) * k, fz, X - W * 0.95 * k, fz + 5);
+  }
+  // 林间豁口：两块倾斜巨岩 + 横梁石
+  { const z = zOfT(0.707), T = routeTangent(z), N = new THREE.Vector2(-T.y, T.x), cx = routeX(z), yaw = yawOf(T);
+    for (const s of [-1, 1]) {
+      const x = cx + N.x * s * 7.8, zz = z + N.y * s * 7.8, y = heightAt(x, zz);
+      STATIC_ITEMS.push({ geo: rockGeos[s > 0 ? 0 : 2], matrix: MY(x, y + 4.2, zz, yaw, 0, -s * 0.16, 2.6, 6.2, 2.8), colorFn: null, color: null, rockVC: true });
+      addCollider({ type: 'c', x, z: zz, r: 2.7, top: y + 60 }); RESERVED.push({ x, z: zz, r: 4 });
+    }
+    const y = heightAt(cx, z);
+    STATIC_ITEMS.push({ geo: rockGeos[1], matrix: MY(cx, y + 10.6, z, yaw + Math.PI / 2, 0, 0.05, 2.4, 1.5, 10.5), rockVC: true });
+    for (let i = 0; i < 6; i++) STATIC_ITEMS.push({ geo: blob(0.9, 40 + i), matrix: MY(cx + rr(-6, 6) * N.x, y + 11.5 + rr(0, 0.6), z + rr(-6, 6) * N.y), colorFn: leafColorFn(C(0x3f7d2c), C(0x9fd055), y + 10, y + 13) });
+  }
+  // 风车
+  { const z = -1712, x = routeX(z) + 44 * Math.sign(LAKE.cx - routeX(LAKE.cz) || 1) * -1, y = heightAt(x, z);
+    const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = Math.atan2(-x + routeX(z - 40), 40) + 0.4; decor.add(g);
+    part(new THREE.CylinderGeometry(2.1, 3.1, 11, 12), toon(0xf3ead6), g, [0, 5.5, 0], null, null, 0.06);
+    part(new THREE.ConeGeometry(2.8, 3.2, 12), toon(0xb8433a), g, [0, 12.6, 0], null, null, 0.06);
+    part(boxG(1.1, 1.8, 0.2), toon(0x7a4a2a), g, [0, 0.9, 3.0], null, null, 0.03);
+    windmillBlades = new THREE.Group(); windmillBlades.position.set(0, 10.6, 2.6); g.add(windmillBlades);
+    part(new THREE.CylinderGeometry(0.35, 0.35, 0.8, 10), toon(0x6b4a2e), windmillBlades, [0, 0, 0], [Math.PI / 2, 0, 0], null, 0.03);
+    for (let k = 0; k < 4; k++) { const a = new THREE.Group(); a.rotation.z = k * Math.PI / 2; windmillBlades.add(a);
+      part(boxG(0.22, 7.2, 0.12), toon(0x6b4a2e), a, [0, 3.7, 0.2], null, null, 0.03);
+      part(boxG(1.5, 5.6, 0.05), toon(0xfbf2de, { side: THREE.DoubleSide }), a, [0.85, 4.2, 0.25], null, null, 0.02); }
+    addCollider({ type: 'c', x, z, r: 3.2, top: y + 60 }); RESERVED.push({ x, z, r: 7 });
+  }
+  // 上升气流
+  for (const u of UPDRAFTS) RESERVED.push({ x: u.x, z: u.z, r: u.r + 1 });
+}
+
+/* ---------- 小镇：彩色屋顶、木筋墙、钟塔、广场喷泉、热气球 ---------- */
+const WALLS = [0xf6ecd4, 0xfbf5e6, 0xecd6a6, 0xf1dcc0], ROOFS = [0xc8553a, 0xb8433a, 0x4f6f95, 0x3f8a83, 0xd8743a, 0x9a4b6a];
+function houseItems(w, d, h, wallHex, roofHex, mtx, rnd) {
+  const it = [], wall = C(wallHex), roof = C(roofHex), roofD = C(roofHex).multiplyScalar(0.8), tim = C(0x6b4a2e), win = C(0x41617f), frame = C(0xfff4dc);
+  const add = (geo, m, color) => it.push({ geo, matrix: mtx.clone().multiply(m), color });
+  add(boxG(w + 0.2, 0.55, d + 0.2), M4(0, 0.27, 0), STONE[1]);
+  add(boxG(w, h, d), M4(0, h / 2, 0), wall);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(boxG(0.2, h, 0.2), M4(sx * w / 2, h / 2, sz * d / 2), tim);
+  for (const sz of [-1, 1]) { add(boxG(w + 0.05, 0.16, 0.08), M4(0, h * 0.55, sz * (d / 2 + 0.02)), tim); add(boxG(w + 0.05, 0.16, 0.08), M4(0, h - 0.08, sz * (d / 2 + 0.02)), tim); }
+  for (const sx of [-1, 1]) add(boxG(0.08, 0.16, d + 0.05), M4(sx * (w / 2 + 0.02), h * 0.55, 0), tim);
+  const pitch = 0.62, rise = d / 2 * Math.tan(pitch), slant = (d / 2 + 0.5) / Math.cos(pitch);
+  // 山墙三角
+  const gab = new THREE.BufferGeometry(); gab.setAttribute('position', new THREE.Float32BufferAttribute([-w / 2, 0, -d / 2, -w / 2, 0, d / 2, -w / 2, rise, 0, w / 2, 0, d / 2, w / 2, 0, -d / 2, w / 2, rise, 0], 3)); gab.computeVertexNormals();
+  add(gab, M4(0, h, 0), wall);
+  for (const sz of [-1, 1]) add(boxG(w + 0.8, 0.22, slant), M4(0, h + rise / 2 + 0.12, sz * d / 4, sz * pitch, 0, 0), sz > 0 ? roof : roofD);
+  add(boxG(w + 0.9, 0.2, 0.3), M4(0, h + rise + 0.12, 0), roofD);
+  if (rnd() < 0.8) add(boxG(0.6, 1.6, 0.6), M4(w * 0.25, h + rise * 0.7 + 0.4, -d * 0.18), STONE[0]);
+  // 门窗
+  add(boxG(0.95, 1.7, 0.12), M4(rnd() < 0.5 ? -w * 0.22 : w * 0.22, 0.85 + 0.45, d / 2 + 0.03), C(0x7a4a2a));
+  const nW = Math.max(1, Math.floor(w / 1.8));
+  for (let i = 0; i < nW; i++) {
+    const x = -w / 2 + (i + 0.5) * (w / nW);
+    for (const sz of [-1, 1]) {
+      add(boxG(0.8, 0.95, 0.1), M4(x, h * 0.78, sz * (d / 2 + 0.04)), frame); add(boxG(0.6, 0.75, 0.12), M4(x, h * 0.78, sz * (d / 2 + 0.05)), win);
+      if (rnd() < 0.5) { add(boxG(0.85, 0.22, 0.3), M4(x, h * 0.78 - 0.55, sz * (d / 2 + 0.15)), WOOD[0]); add(boxG(0.75, 0.2, 0.25), M4(x, h * 0.78 - 0.36, sz * (d / 2 + 0.15)), C(rnd() < 0.5 ? 0xe0473a : 0xf2c84a)); }
+    }
+  }
+  return it;
+}
+const HOUSES = [];
+function tryHouse(x, z, faceX, faceZ, w, d, h) {
+  const r = Math.hypot(w, d) / 2 + 1.2;
+  if (HOUSES.some(o => (o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + r) ** 2)) return false;
+  if (Math.abs(routeD(x, z)) < ROAD + 2 + Math.min(w, d) / 2) return false;
+  if (Math.hypot(x - PLAZA.x, z - PLAZA.z) < PLAZA.r + r - 1) return false;
+  if (waterLevelAt(x, z) !== null) return false;
+  const yaw = Math.atan2(faceX - x, faceZ - z);
+  HOUSES.push({ x, z, r, w, d, h, yaw }); return true;
+}
+function buildTown() {
+  const zG = zOfT(FEAT.townT);
+  gateArch(zG, '风谷镇 · 终点', [0xd0573a, 0xfff1d0, 0xe8b447, 0x4f6f95], 6.5, true);
+  // 沿街房屋
+  for (let z = zG - 9; z > PLAZA.z + PLAZA.r + 3; z -= rr(8.5, 11)) for (const s of [-1, 1]) {
+    const w = rr(5, 7.5), d = rr(5, 6.5), off = ROAD + 2.4 + d / 2 + rr(0, 1), k = Math.sqrt(1 + routeDX(z) ** 2);
+    tryHouse(routeX(z) + s * off * k, z, routeX(z), z, w, d, rr(3.6, 5.2));
+  }
+  // 环绕广场
+  for (let a = 0.55; a < Math.PI * 2 - 0.55; a += 0.42) {
+    const R = PLAZA.r + rr(5, 7.5), x = PLAZA.x + Math.sin(a) * R, z = PLAZA.z + Math.cos(a) * R;
+    if (Math.abs(a - Math.PI) < 0.3) continue; // 钟塔位置
+    tryHouse(x, z, PLAZA.x, PLAZA.z, rr(5.5, 7.5), rr(5, 6.5), rr(4.2, 6));
+  }
+  // 外围散落
+  for (let i = 0; i < 160 && HOUSES.length < 64; i++) {
+    const z = rr(PLAZA.z - 70, zG + 14), x = routeX(z) + (rand() < 0.5 ? -1 : 1) * rr(14, 58);
+    tryHouse(x, z, routeX(z), z + rr(-10, 10), rr(4.5, 7.5), rr(4.5, 6.5), rr(3.4, 5.4));
+  }
+  const items = [];
+  for (const hs of HOUSES) {
+    const y = heightAt(hs.x, hs.z) - 0.25, r = mulberry32(Math.floor(hs.x * 13 + hs.z * 7));
+    items.push(...houseItems(hs.w, hs.d, hs.h, WALLS[Math.floor(r() * WALLS.length)], ROOFS[Math.floor(r() * ROOFS.length)], MY(hs.x, y, hs.z, hs.yaw), r));
+    addCollider({ type: 'b', x: hs.x, z: hs.z, hx: hs.w / 2 + 0.3, hz: hs.d / 2 + 0.3, rot: hs.yaw, top: y + 60 });
+    RESERVED.push({ x: hs.x, z: hs.z, r: hs.r });
+  }
+  // 钟塔
+  const tx = PLAZA.x, tz = PLAZA.z - PLAZA.r - 7, ty = heightAt(tx, tz) - 0.2;
+  items.push({ geo: boxG(6.2, 1, 6.2), matrix: MY(tx, ty + 0.5, tz), color: STONE[1] }, { geo: boxG(5.2, 17, 5.2), matrix: MY(tx, ty + 9, tz), color: C(0xf3ead6) },
+    { geo: boxG(5.8, 0.6, 5.8), matrix: MY(tx, ty + 17.6, tz), color: STONE[1] });
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) items.push({ geo: boxG(0.8, 4, 0.8), matrix: MY(tx + sx * 2.3, ty + 19.9, tz + sz * 2.3), color: C(0xf3ead6) });
+  items.push({ geo: boxG(5.8, 0.6, 5.8), matrix: MY(tx, ty + 22.2, tz), color: STONE[1] }, { geo: new THREE.ConeGeometry(4.6, 8.5, 4), matrix: MY(tx, ty + 26.7, tz, Math.PI / 4), color: C(0x3f6f9a) },
+    { geo: new THREE.CylinderGeometry(0.07, 0.07, 3, 5), matrix: MY(tx, ty + 32, tz), color: WOOD_D }, { geo: new THREE.CylinderGeometry(1.25, 1.25, 0.2, 20), matrix: MY(tx, ty + 13.5, tz + 2.65, 0, Math.PI / 2), color: C(0xfff4dc) },
+    { geo: boxG(0.12, 0.9, 0.08), matrix: MY(tx, ty + 13.8, tz + 2.78), color: C(0x3b2f22) }, { geo: boxG(0.6, 0.12, 0.08), matrix: MY(tx + 0.25, ty + 13.5, tz + 2.78), color: C(0x3b2f22) },
+    { geo: new THREE.SphereGeometry(1.2, 12, 8), matrix: MY(tx, ty + 19.5, tz, 0, 0, 0, 1, 1.4, 1), color: C(0xe8b447) });
+  flag(0xd0573a, decor, tx, ty + 33, tz, 0.6);
+  addCollider({ type: 'b', x: tx, z: tz, hx: 3.2, hz: 3.2, rot: 0, top: ty + 80 }); RESERVED.push({ x: tx, z: tz, r: 5 });
+  // 广场喷泉
+  const fy = heightAt(PLAZA.x, PLAZA.z);
+  items.push({ geo: new THREE.CylinderGeometry(3.2, 3.4, 0.9, 24), matrix: MY(PLAZA.x, fy + 0.4, PLAZA.z), color: STONE[0] }, { geo: new THREE.CylinderGeometry(0.5, 0.7, 2.4, 10), matrix: MY(PLAZA.x, fy + 1.2, PLAZA.z), color: STONE[2] },
+    { geo: new THREE.CylinderGeometry(1.3, 0.8, 0.4, 16), matrix: MY(PLAZA.x, fy + 2.4, PLAZA.z), color: STONE[0] });
+  const fw = new THREE.Mesh(new THREE.CylinderGeometry(2.9, 2.9, 0.1, 24), toon(0x6fd0d8, { emissive: 0x2a6a70, ei: 0.4 })); fw.position.set(PLAZA.x, fy + 0.8, PLAZA.z); decor.add(fw);
+  addCollider({ type: 'c', x: PLAZA.x, z: PLAZA.z, r: 3.4, top: fy + 1.0 });
+  // 彩旗串
+  for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2, b = a + Math.PI / 3 * 2; bunting(PLAZA.x + Math.sin(a) * 15, fy + 6, PLAZA.z + Math.cos(a) * 15, PLAZA.x + Math.sin(b) * 9, fy + 5, PLAZA.z + Math.cos(b) * 9, [0xd0573a, 0xe8b447, 0x4fb3a9, 0xfff1d0], 0.8); }
+  for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + 0.3, x = PLAZA.x + Math.sin(a) * 15, z = PLAZA.z + Math.cos(a) * 15, y = heightAt(x, z); items.push({ geo: new THREE.CylinderGeometry(0.1, 0.12, 6.2, 6), matrix: MY(x, y + 3.1, z), color: WOOD_D }); }
+  const houseGeo = mergeColored(items);
+  const hm = new THREE.Mesh(houseGeo, toon(0xffffff, { vc: true, rim: 0.6 })); hm.castShadow = hm.receiveShadow = true; scene.add(hm);
+  const ho = new THREE.Mesh(averagedNormals(houseGeo), outlineMat(0.06)); scene.add(ho);
+  // 热气球（远处可见的终点标志）
+  balloon = new THREE.Group(); balloon.position.set(PLAZA.x + 24, fy + 78, PLAZA.z - 34); balloon.scale.setScalar(1.35); decor.add(balloon);
+  const bg = new THREE.SphereGeometry(7, 24, 18), bc = [], pp = bg.attributes.position, cA = C(0xd0573a), cB = C(0xfff1d0), cG = C(0xe8b447);
+  for (let i = 0; i < pp.count; i++) { const a = Math.atan2(pp.getX(i), pp.getZ(i)); const k = Math.floor((a + Math.PI) / (Math.PI * 2) * 12); const c = k % 3 === 0 ? cA : k % 3 === 1 ? cB : cG; bc.push(c.r, c.g, c.b); if (pp.getY(i) < 0) pp.setXYZ(i, pp.getX(i) * (1 + pp.getY(i) / 14), pp.getY(i) * 1.25, pp.getZ(i) * (1 + pp.getY(i) / 14)); }
+  bg.setAttribute('color', new THREE.Float32BufferAttribute(bc, 3)); bg.computeVertexNormals();
+  part(bg, toon(0xffffff, { vc: true }), balloon, [0, 0, 0], null, null, 0.12, false);
+  part(boxG(1.6, 1.2, 1.6), toon(0x9a6638), balloon, [0, -11.5, 0], null, null, 0.05, false);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) part(new THREE.CylinderGeometry(0.03, 0.03, 4.2, 3), toon(0x5a4a3a), balloon, [sx * 0.9, -9.2, sz * 0.9], [sz * 0.12, 0, -sx * 0.12], null, 0);
+}
+function buildStatic() {
+  const rockItems = STATIC_ITEMS.filter(i => i.rockVC), dbl = STATIC_ITEMS.filter(i => i.double), rest = STATIC_ITEMS.filter(i => !i.rockVC && !i.double);
+  const g = mergeColored(rest); const m = new THREE.Mesh(g, toon(0xffffff, { vc: true, rim: 0.5 })); m.castShadow = m.receiveShadow = true; scene.add(m);
+  scene.add(new THREE.Mesh(averagedNormals(g), outlineMat(0.035)));
+  if (dbl.length) { const gd = mergeColored(dbl); const md = new THREE.Mesh(gd, toon(0xffffff, { vc: true, side: THREE.DoubleSide, rim: 0.3 })); md.castShadow = true; scene.add(md); }
+  if (rockItems.length) {
+    const list = rockItems.map(r => { const gg = r.geo.clone(); gg.applyMatrix4(r.matrix); return gg; });
+    for (const gg of list) { const mm = new THREE.Mesh(gg, toon(0xffffff, { vc: true, rim: 0.5 })); mm.castShadow = mm.receiveShadow = true; scene.add(mm); addOutline(mm, 0.06); }
+  }
+}
+/* 上升气流可视化：盘旋上升的风之粒子 + 半透明气旋 */
+function buildUpdrafts() {
+  const n = 140, pos = new Float32Array(UPDRAFTS.length * n * 3), rnd = new Float32Array(UPDRAFTS.length * n * 3);
+  UPDRAFTS.forEach((u, k) => { for (let i = 0; i < n; i++) { const o = (k * n + i) * 3; pos[o] = u.x; pos[o + 1] = u.y; pos[o + 2] = u.z; rnd[o] = Math.random(); rnd[o + 1] = Math.random(); rnd[o + 2] = Math.random(); } });
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aRnd', new THREE.BufferAttribute(rnd, 3));
+  const m = new THREE.ShaderMaterial({ uniforms: { uTime: U.time, uPR: { value: pixelRatio } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `uniform float uTime, uPR; attribute vec3 aRnd; varying float vA;
+      void main(){ float top = 18.0; float y = mod(aRnd.x*top + uTime*(3.0 + aRnd.y*3.0), top); float a = aRnd.y*6.2831 + uTime*(1.2+aRnd.z) + y*0.25; float r = 0.6 + aRnd.z*3.6;
+        vec3 p = position + vec3(cos(a)*r, y, sin(a)*r); vA = smoothstep(0.0, 2.0, y) * (1.0 - smoothstep(top-5.0, top, y));
+        vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = uPR * (90.0 + aRnd.z*60.0) / -mv.z; }`,
+    fragmentShader: `varying float vA; void main(){ vec2 c = gl_PointCoord - 0.5; float d = length(c); float a = smoothstep(0.5, 0.1, d) * vA * 0.55; gl_FragColor = vec4(vec3(1.0, 0.98, 0.85) * a, a); }` });
+  const pts = new THREE.Points(g, m); pts.frustumCulled = false; scene.add(pts);
+  const cylMat = new THREE.ShaderMaterial({ uniforms: { uTime: U.time }, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `uniform float uTime; varying vec2 vUv; void main(){ float s = fract(vUv.x*3.0 + vUv.y*1.5 - uTime*0.6); float band = smoothstep(0.0,0.08,s)*(1.0-smoothstep(0.12,0.3,s)); float a = band * 0.22 * smoothstep(0.0,0.15,vUv.y) * (1.0 - smoothstep(0.6,1.0,vUv.y)); gl_FragColor = vec4(vec3(1.0,0.97,0.85)*a, a); }` });
+  for (const u of UPDRAFTS) { const c = new THREE.Mesh(new THREE.CylinderGeometry(u.r * 0.8, u.r * 0.55, u.top, 20, 1, true), cylMat); c.position.set(u.x, u.y + u.top / 2, u.z); scene.add(c); }
+}
+
+/* =====================================================================
+   原创风格化冒险者 + 三种载具（程序化建模，带描边、关节动画）
+   ===================================================================== */
+const MAT = {
+  skin: toon(0xf2c9a0), hair: toon(0x5a3a24), jacket: toon(0xe0a640), jacketD: toon(0xb97f2a), pants: toon(0x5d6a45), boot: toon(0x5a3a26),
+  scarf: toon(0xd0573a, { side: THREE.DoubleSide }), belt: toon(0x6b4a2e), pack: toon(0x8a6a44), roll: toon(0x4f8f8a), glove: toon(0x7a5232),
+  goggle: toon(0x3b2f22), lens: toon(0xf0b44a, { emissive: 0x6a3a00, ei: 0.4 }), eye: new THREE.MeshBasicMaterial({ color: 0x2a1f16 }), cheek: new THREE.MeshBasicMaterial({ color: 0xf0a088 })
+};
+const capsule = (r, l) => new THREE.CapsuleGeometry(r, l, 6, 12);
+const sph = (r, a = 16, b = 12) => new THREE.SphereGeometry(r, a, b);
+function buildRider() {
+  const R = { root: new THREE.Group() };
+  const pelvis = R.pelvis = new THREE.Group(); R.root.add(pelvis);
+  part(sph(0.17), MAT.pants, pelvis, [0, 0.02, 0], null, [1.1, 0.75, 0.9]);
+  const spine = R.spine = new THREE.Group(); spine.position.y = 0.06; pelvis.add(spine);
+  part(capsule(0.165, 0.24), MAT.jacket, spine, [0, 0.24, 0], null, [1.08, 1, 0.86]);
+  part(new THREE.CylinderGeometry(0.19, 0.235, 0.2, 14), MAT.jacketD, spine, [0, 0.03, 0]);
+  part(new THREE.TorusGeometry(0.17, 0.03, 6, 16), MAT.belt, spine, [0, 0.1, 0], [Math.PI / 2, 0, 0], [1.06, 0.86, 1]);
+  part(boxG(0.07, 0.06, 0.03), toon(0xe8b447), spine, [0, 0.1, 0.16], null, null, 0.01);
+  // 背包 + 睡袋卷
+  part(new THREE.CapsuleGeometry(0.12, 0.14, 4, 10), MAT.pack, spine, [0, 0.27, -0.19], [0, 0, Math.PI / 2], [1, 1.25, 0.75]);
+  part(new THREE.CylinderGeometry(0.07, 0.07, 0.36, 12), MAT.roll, spine, [0, 0.45, -0.19], [0, 0, Math.PI / 2]);
+  // 围巾
+  part(new THREE.TorusGeometry(0.1, 0.05, 8, 16), MAT.scarf, spine, [0, 0.46, 0], [Math.PI / 2, 0, 0]);
+  R.scarfTail = [];
+  let sp = spine;
+  { const g = new THREE.Group(); g.position.set(0.05, 0.46, -0.1); spine.add(g); sp = g;
+    for (let i = 0; i < 3; i++) { const seg = new THREE.Group(); seg.position.set(0, 0, i === 0 ? 0 : -0.16); sp.add(seg);
+      part(boxG(0.08, 0.02, 0.17), MAT.scarf, seg, [0, 0, -0.08], null, null, 0.01, false); R.scarfTail.push(seg); sp = seg; } }
+  // 头部
+  const head = R.head = new THREE.Group(); head.position.y = 0.6; spine.add(head);
+  part(sph(0.145, 20, 16), MAT.skin, head, [0, 0.06, 0], null, [1, 1.05, 1]);
+  part(sph(0.155, 18, 14), MAT.hair, head, [0, 0.12, -0.025], null, [1.04, 0.92, 1.02]);
+  part(new THREE.ConeGeometry(0.06, 0.14, 8), MAT.hair, head, [0.06, 0.24, 0.03], [0.5, 0, -0.5], null, 0.012);
+  part(new THREE.ConeGeometry(0.05, 0.12, 8), MAT.hair, head, [-0.05, 0.25, 0.0], [0.2, 0, 0.6], null, 0.012);
+  part(new THREE.ConeGeometry(0.06, 0.16, 8), MAT.hair, head, [0, 0.12, -0.15], [-1.9, 0, 0], null, 0.012);
+  part(new THREE.TorusGeometry(0.147, 0.022, 6, 20), MAT.goggle, head, [0, 0.13, 0.0], [Math.PI / 2 - 0.25, 0, 0], null, 0.008);
+  for (const s of [-1, 1]) {
+    part(new THREE.CylinderGeometry(0.045, 0.045, 0.04, 14), MAT.lens, head, [s * 0.055, 0.17, 0.125], [Math.PI / 2 - 0.55, 0, 0], null, 0.01);
+    part(sph(0.019, 8, 6), MAT.eye, head, [s * 0.052, 0.055, 0.132], null, [1, 1.3, 0.6], 0, false);
+    part(sph(0.022, 8, 6), MAT.cheek, head, [s * 0.085, 0.015, 0.115], null, [1, 0.6, 0.4], 0, false);
+  }
+  part(sph(0.022, 8, 6), MAT.skin, head, [0, 0.03, 0.145], null, null, 0.006, false);
+  // 手臂
+  R.arm = {};
+  for (const s of [-1, 1]) {
+    const sh = new THREE.Group(); sh.position.set(s * 0.215, 0.43, 0); spine.add(sh);
+    part(sph(0.075), MAT.jacket, sh, [0, 0, 0]);
+    part(capsule(0.058, 0.17), MAT.jacket, sh, [0, -0.13, 0]);
+    const el = new THREE.Group(); el.position.y = -0.27; sh.add(el);
+    part(capsule(0.05, 0.15), MAT.skin, el, [0, -0.1, 0]);
+    part(sph(0.062), MAT.glove, el, [0, -0.24, 0], null, [1, 1.1, 1]);
+    R.arm[s] = { sh, el };
+  }
+  // 腿
+  R.leg = {};
+  for (const s of [-1, 1]) {
+    const hip = new THREE.Group(); hip.position.set(s * 0.095, -0.02, 0); pelvis.add(hip);
+    part(capsule(0.075, 0.26), MAT.pants, hip, [0, -0.2, 0]);
+    const kn = new THREE.Group(); kn.position.y = -0.4; hip.add(kn);
+    part(capsule(0.065, 0.25), MAT.pants, kn, [0, -0.18, 0]);
+    part(new THREE.CapsuleGeometry(0.075, 0.12, 4, 10), MAT.boot, kn, [0, -0.38, 0.04], [Math.PI / 2, 0, 0], [1, 1, 0.85]);
+    part(new THREE.CylinderGeometry(0.08, 0.08, 0.06, 12), MAT.boot, kn, [0, -0.33, 0]);
+    R.leg[s] = { hip, kn };
+  }
+  return R;
+}
+// 两段 IK（矢状面）：返回髋角、膝角
+function legIK(dy, dz, l1 = 0.4, l2 = 0.38) {
+  const Lt = clamp(Math.hypot(dy, dz), 0.05, (l1 + l2) * 0.999);
+  const alpha = Math.atan2(-dz, -dy);
+  const cb = clamp((l1 * l1 + Lt * Lt - l2 * l2) / (2 * l1 * Lt), -1, 1), beta = Math.acos(cb);
+  const cg = clamp((l1 * l1 + l2 * l2 - Lt * Lt) / (2 * l1 * l2), -1, 1), knee = Math.PI - Math.acos(cg);
+  return [alpha - beta, knee, alpha, beta];
+}
+
+/* ---------- 山地自行车 ---------- */
+function buildBike() {
+  const B = { root: new THREE.Group() }, g = B.root;
+  const frameM = toon(0xd9582e), frameM2 = toon(0xf3e6c8), dark = toon(0x3a3532), metal = toon(0xb9c0c4), tire = toon(0x2f2a26), seat = toon(0x4a3a2e);
+  const tube = (a, b, r, m) => { const A = new THREE.Vector3(...a), Bv = new THREE.Vector3(...b), d = Bv.clone().sub(A), mesh = part(new THREE.CylinderGeometry(r, r, d.length(), 8), m, g, null, null, null, 0.012);
+    mesh.position.copy(A).add(Bv).multiplyScalar(0.5); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); return mesh; };
+  const RW = [0, 0.36, -0.53], FW = [0, 0.36, 0.56], BB = [0, 0.33, 0.02], ST = [0, 0.8, -0.16], HT = [0, 1.0, 0.43], HB = [0, 0.82, 0.48];
+  tube(BB, ST, 0.03, frameM); tube(BB, HB, 0.036, frameM); tube(ST, HT, 0.03, frameM2); tube(BB, RW, 0.022, frameM); tube(ST, RW, 0.02, frameM);
+  tube(HT, HB, 0.04, dark);
+  for (const s of [-1, 1]) tube([s * 0.06, 0.82, 0.48], [s * 0.06, 0.36, 0.56], 0.024, metal);
+  tube([0, 1.0, 0.43], [0, 1.08, 0.40], 0.02, dark);
+  part(new THREE.CylinderGeometry(0.016, 0.016, 0.66, 8), dark, g, [0, 1.08, 0.41], [0, 0, Math.PI / 2], null, 0.01);
+  for (const s of [-1, 1]) part(new THREE.CylinderGeometry(0.024, 0.024, 0.1, 8), tire, g, [s * 0.3, 1.08, 0.41], [0, 0, Math.PI / 2], null, 0.01);
+  tube(ST, [0, 0.88, -0.19], 0.018, metal);
+  part(new THREE.CapsuleGeometry(0.06, 0.14, 4, 10), seat, g, [0, 0.9, -0.19], [Math.PI / 2, 0, 0], [1.1, 1, 0.5], 0.012);
+  B.wheels = [];
+  for (const W of [RW, FW]) {
+    const w = new THREE.Group(); w.position.set(...W); g.add(w); B.wheels.push(w);
+    part(new THREE.TorusGeometry(0.33, 0.055, 8, 28), tire, w, null, [0, Math.PI / 2, 0], null, 0.014);
+    part(new THREE.TorusGeometry(0.29, 0.014, 5, 24), metal, w, null, [0, Math.PI / 2, 0], null, 0);
+    for (let k = 0; k < 6; k++) part(new THREE.CylinderGeometry(0.006, 0.006, 0.58, 3), metal, w, null, [k * Math.PI / 6, 0, 0], null, 0, false);
+    part(new THREE.CylinderGeometry(0.04, 0.04, 0.1, 10), dark, w, null, [0, 0, Math.PI / 2], null, 0.008);
+  }
+  // 牙盘 + 曲柄 + 踏板
+  B.crank = new THREE.Group(); B.crank.position.set(...BB); g.add(B.crank);
+  part(new THREE.CylinderGeometry(0.1, 0.1, 0.02, 16), metal, B.crank, [0.06, 0, 0], [0, 0, Math.PI / 2], null, 0.008);
+  B.pedals = [];
+  for (const s of [-1, 1]) {
+    const arm = new THREE.Group(); arm.rotation.x = s > 0 ? 0 : Math.PI; B.crank.add(arm);
+    part(boxG(0.025, 0.025, 0.17), dark, arm, [s * 0.09, 0, 0.085], null, null, 0.006);
+    const pd = part(boxG(0.1, 0.02, 0.06), dark, arm, [s * 0.14, 0, 0.17], null, null, 0.006); B.pedals.push(pd);
+  }
+  part(boxG(0.03, 0.05, 0.5), dark, g, [0.07, 0.34, -0.25], null, null, 0.006); // 链条
+  part(new THREE.BoxGeometry(0.14, 0.05, 0.3), frameM2, g, [0, 0.6, -0.55], [0.3, 0, 0], null, 0.008); // 后挡泥
+  B.BB = BB; return B;
+}
+
+/* ---------- 马（栗色，白袜，鬃毛，鞍具） ---------- */
+function buildHorse() {
+  const H = { root: new THREE.Group() }, g = H.root;
+  const coat = toon(0xa45f32), coatD = toon(0x7d4524), mane = toon(0x3b2a1e), white = toon(0xf6ead6), hoof = toon(0x3a3028), saddle = toon(0x6b4228), blanket = toon(0x3f8a83), gold = toon(0xe8b447);
+  H.body = new THREE.Group(); H.body.position.y = 1.17; g.add(H.body);
+  part(capsule(0.36, 1.05), coat, H.body, [0, 0, 0], [Math.PI / 2, 0, 0], [1, 1, 1.05], 0.03);
+  part(sph(0.4), coat, H.body, [0, 0.02, -0.55], null, [0.95, 0.92, 0.95], 0.03);
+  part(sph(0.4), coat, H.body, [0, 0.04, 0.5], null, [0.9, 0.98, 0.9], 0.03);
+  // 颈与头
+  H.neck = new THREE.Group(); H.neck.position.set(0, 0.22, 0.68); H.body.add(H.neck);
+  part(capsule(0.2, 0.55), coat, H.neck, [0, 0.3, 0.12], [0.55, 0, 0], [0.82, 1, 1], 0.03);
+  for (let i = 0; i < 6; i++) part(boxG(0.07, 0.17, 0.16), mane, H.neck, [0, 0.12 + i * 0.1, -0.06 + i * 0.05], [0.55, 0, 0], null, 0.012);
+  H.head = new THREE.Group(); H.head.position.set(0, 0.66, 0.36); H.neck.add(H.head);
+  part(capsule(0.14, 0.4), coat, H.head, [0, -0.06, 0.2], [1.95, 0, 0], [1, 1, 0.9], 0.025);
+  part(sph(0.13), coatD, H.head, [0, -0.2, 0.44], null, [0.95, 0.85, 1.1], 0.02);
+  part(boxG(0.06, 0.1, 0.18), white, H.head, [0, 0.0, 0.3], [0.35, 0, 0], null, 0.008);
+  for (const s of [-1, 1]) {
+    part(new THREE.ConeGeometry(0.05, 0.16, 6), coat, H.head, [s * 0.08, 0.17, 0.02], [-0.2, 0, s * 0.2], null, 0.01);
+    part(sph(0.025, 8, 6), MAT.eye, H.head, [s * 0.12, 0.03, 0.14], null, null, 0, false);
+    part(new THREE.TorusGeometry(0.05, 0.012, 4, 10), gold, H.head, [s * 0.11, -0.2, 0.38], [0, Math.PI / 2, 0], null, 0);
+  }
+  part(boxG(0.07, 0.12, 0.1), mane, H.head, [0, 0.16, 0.06], null, null, 0.01);
+  // 缰绳
+  H.reins = part(new THREE.TorusGeometry(0.3, 0.012, 4, 16, Math.PI), toon(0x4a3020), H.head, [0, -0.28, 0.0], [0, Math.PI / 2, 0.9], [1.6, 1, 1], 0);
+  // 尾巴
+  H.tail = []; let tp = new THREE.Group(); tp.position.set(0, 0.18, -0.95); H.body.add(tp);
+  for (let i = 0; i < 4; i++) { const seg = new THREE.Group(); seg.position.z = i === 0 ? 0 : -0.16; tp.add(seg); part(new THREE.ConeGeometry(0.1 - i * 0.012, 0.3, 7), mane, seg, [0, -0.1, -0.05], [-2.2, 0, 0], null, 0.012); H.tail.push(seg); tp = seg; }
+  // 鞍具
+  part(boxG(0.82, 0.05, 0.8), blanket, H.body, [0, 0.33, 0.02], null, null, 0.012);
+  part(boxG(0.84, 0.03, 0.82), gold, H.body, [0, 0.31, 0.02], null, null, 0);
+  part(new THREE.CapsuleGeometry(0.2, 0.3, 4, 10), saddle, H.body, [0, 0.39, 0.02], [Math.PI / 2, 0, 0], [1.25, 1, 0.45], 0.012);
+  part(new THREE.CylinderGeometry(0.04, 0.05, 0.12, 8), saddle, H.body, [0, 0.47, 0.26], null, null, 0.008);
+  // 四条腿：上段 + 下段 + 白袜 + 蹄
+  H.legs = [];
+  const legDef = [[0.2, 0.62, 'F', 0.0], [-0.2, 0.62, 'F', 0.08], [0.2, -0.6, 'H', 0.55], [-0.2, -0.6, 'H', 0.62]];
+  for (const [x, z, kind, ph] of legDef) {
+    const up = new THREE.Group(); up.position.set(x, -0.2, z); H.body.add(up);
+    part(capsule(kind === 'H' ? 0.13 : 0.11, 0.3), coat, up, [0, -0.2, kind === 'H' ? -0.03 : 0], null, null, 0.022);
+    const lo = new THREE.Group(); lo.position.y = -0.46; up.add(lo);
+    part(capsule(0.06, 0.3), coat, lo, [0, -0.17, 0], null, null, 0.015);
+    part(new THREE.CylinderGeometry(0.075, 0.085, 0.14, 10), white, lo, [0, -0.36, 0], null, null, 0.012);
+    part(new THREE.CylinderGeometry(0.085, 0.095, 0.08, 10), hoof, lo, [0, -0.46, 0.01], null, null, 0.012);
+    H.legs.push({ up, lo, kind, ph });
+  }
+  return H;
+}
+
+/* ---------- 悬浮滑板（木质板身 + 黄铜风盘 + 柔光气垫） ---------- */
+function buildBoard() {
+  const Bd = { root: new THREE.Group() }, g = Bd.root;
+  const sh = new THREE.Shape(); const Lh = 0.78, Wh = 0.26;
+  sh.moveTo(-Wh, -Lh + Wh); sh.lineTo(-Wh, Lh - Wh); sh.absarc(0, Lh - Wh, Wh, Math.PI, 0, true); sh.lineTo(Wh, -Lh + Wh); sh.absarc(0, -Lh + Wh, Wh, 0, Math.PI, true);
+  const boardGeo = new THREE.ExtrudeGeometry(sh, { depth: 0.05, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.03, bevelSegments: 3, curveSegments: 16 });
+  boardGeo.rotateX(Math.PI / 2); boardGeo.translate(0, 0.05, 0);
+  Bd.deck = new THREE.Group(); g.add(Bd.deck);
+  part(boardGeo, toon(0xc98b4a), Bd.deck, [0, 0, 0], null, null, 0.02);
+  const inlay = new THREE.ShapeGeometry(sh, 12); inlay.rotateX(-Math.PI / 2);
+  part(inlay, toon(0x3f8a83), Bd.deck, [0, 0.082, 0], null, [0.55, 1, 0.82], 0, false);
+  part(boxG(0.42, 0.012, 0.08), toon(0xfff1d0), Bd.deck, [0, 0.086, 0.42], null, null, 0, false);
+  part(boxG(0.42, 0.012, 0.08), toon(0xfff1d0), Bd.deck, [0, 0.086, -0.42], null, null, 0, false);
+  // 尾翼
+  for (const s of [-1, 1]) part(boxG(0.02, 0.16, 0.22), toon(0xd0573a), Bd.deck, [s * 0.18, 0.12, -0.66], [0, 0, s * 0.3], null, 0.008);
+  // 风盘
+  Bd.glow = [];
+  const glowMat = new THREE.MeshBasicMaterial({ color: 0xbff5e6, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const coneMat = new THREE.MeshBasicMaterial({ color: 0xdffaf0, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  for (const z of [0.42, -0.42]) {
+    part(new THREE.CylinderGeometry(0.17, 0.2, 0.06, 18), toon(0xd8b15a), Bd.deck, [0, -0.02, z], null, null, 0.012);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.025, 6, 20), glowMat); ring.rotation.x = Math.PI / 2; ring.position.set(0, -0.06, z); Bd.deck.add(ring);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.5, 16, 1, true), coneMat); cone.position.set(0, -0.3, z); Bd.deck.add(cone);
+    Bd.glow.push(ring, cone);
+  }
+  Bd.glowMat = glowMat; Bd.coneMat = coneMat;
+  return Bd;
+}
+
+const playerRoot = new THREE.Group(); scene.add(playerRoot);
+const tilt = new THREE.Group(); playerRoot.add(tilt);
+const rider = buildRider();
+const bike = buildBike(), horse = buildHorse(), board = buildBoard();
+for (const v of [bike, horse, board]) { tilt.add(v.root); v.root.visible = false; }
+tilt.add(rider.root);
+const MODELS = { bike, horse, hover: board };
+
+/* =====================================================================
+   粒子：尘土、水花、草屑、滑板气流
+   ===================================================================== */
+const PARTS = (() => {
+  const N = 700, pos = new Float32Array(N * 3), col = new Float32Array(N * 3), size = new Float32Array(N), alpha = new Float32Array(N);
+  const vel = new Float32Array(N * 3), life = new Float32Array(N), maxLife = new Float32Array(N), grav = new Float32Array(N); let head = 0;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setAttribute('aSize', new THREE.BufferAttribute(size, 1)); g.setAttribute('aAlpha', new THREE.BufferAttribute(alpha, 1));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uPR: { value: pixelRatio } }]), transparent: true, depthWrite: false, fog: true,
+    vertexShader: `#include <common>
+      #include <fog_pars_vertex>
+      uniform float uPR; attribute vec3 color; attribute float aSize, aAlpha; varying vec3 vC; varying float vA;
+      void main(){ vC = color; vA = aAlpha; vec4 mvPosition = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix * mvPosition; gl_PointSize = uPR * aSize * 420.0 / max(0.5, -mvPosition.z);
+      #include <fog_vertex>
+      }`,
+    fragmentShader: `#include <common>
+      #include <fog_pars_fragment>
+      varying vec3 vC; varying float vA; void main(){ vec2 c = gl_PointCoord - 0.5; float d = length(c); if (d > 0.5) discard; float a = smoothstep(0.5, 0.25, d) * vA; gl_FragColor = vec4(vC, a);
+      #include <colorspace_fragment>
+      #include <fog_fragment>
+      }`
+  });
+  const pts = new THREE.Points(g, mat); pts.frustumCulled = false; scene.add(pts);
+  return {
+    mat,
+    emit(x, y, z, vx, vy, vz, c, s, l, gr = 4) { const i = head; head = (head + 1) % N; pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; vel[i * 3] = vx; vel[i * 3 + 1] = vy; vel[i * 3 + 2] = vz; col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; size[i] = s; life[i] = maxLife[i] = l; grav[i] = gr; },
+    update(dt) {
+      for (let i = 0; i < N; i++) {
+        if (life[i] <= 0) { alpha[i] = 0; continue; }
+        life[i] -= dt; vel[i * 3 + 1] -= grav[i] * dt; const k = Math.exp(-1.5 * dt); vel[i * 3] *= k; vel[i * 3 + 2] *= k;
+        pos[i * 3] += vel[i * 3] * dt; pos[i * 3 + 1] += vel[i * 3 + 1] * dt; pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
+        const t = life[i] / maxLife[i]; alpha[i] = Math.min(1, t * 2) * 0.85;
+      }
+      g.attributes.position.needsUpdate = g.attributes.color.needsUpdate = g.attributes.aSize.needsUpdate = g.attributes.aAlpha.needsUpdate = true;
+    }
+  };
+})();
+const PC = { dust: C(0xd9b88a), splash: C(0xeaffff), grass: C(0x9ccd4e), gravel: C(0xc9c0ae), wind: C(0xe8fff6), leaf: C(0x6faa3a), puff: C(0xfff4dc) };
+
+/* =====================================================================
+   声音（WebAudio 合成：风声、马蹄、悬浮嗡鸣、检查点提示）
+   ===================================================================== */
+const AUDIO = { ctx: null };
+function initAudio() {
+  if (AUDIO.ctx) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)(); AUDIO.ctx = ctx;
+    const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0); let last = 0;
+    for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 400;
+    const gain = ctx.createGain(); gain.gain.value = 0;
+    src.connect(lp).connect(gain).connect(ctx.destination); src.start();
+    const osc = ctx.createOscillator(); osc.type = 'triangle'; osc.frequency.value = 110; const og = ctx.createGain(); og.gain.value = 0; osc.connect(og).connect(ctx.destination); osc.start();
+    Object.assign(AUDIO, { lp, gain, osc, og, noise: buf });
+  } catch (e) { AUDIO.ctx = null; }
+}
+function sfxClick(freq = 180, dur = 0.06, vol = 0.18, type = 'bp') {
+  const ctx = AUDIO.ctx; if (!ctx) return;
+  const s = ctx.createBufferSource(); s.buffer = AUDIO.noise; const f = ctx.createBiquadFilter(); f.type = type === 'bp' ? 'bandpass' : 'lowpass'; f.frequency.value = freq; f.Q.value = 3;
+  const g = ctx.createGain(); g.gain.setValueAtTime(vol, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+  s.connect(f).connect(g).connect(ctx.destination); s.start(ctx.currentTime, Math.random()); s.stop(ctx.currentTime + dur + 0.02);
+}
+function sfxTone(notes, step = 0.11, vol = 0.12) {
+  const ctx = AUDIO.ctx; if (!ctx) return;
+  notes.forEach((n, i) => { const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + i * step; o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (n - 69) / 12);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t + step * 2.5); o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + step * 3); });
+}
+
+/* =====================================================================
+   玩家状态 / 输入
+   ===================================================================== */
+const player = {
+  pos: new THREE.Vector3(), vel: new THREE.Vector3(), heading: Math.PI, grounded: true, vehicle: 'bike',
+  stamina: 1, energy: 1, stumble: 0, air: 0, surface: 'DIRT', s: 0, gn: new THREE.Vector3(0, 1, 0), lastLandImpact: 0,
+  safe: [], safeTimer: 0, stuckTimer: 0, switchCD: 0, jumpCD: 0, gallop: 0, crank: 0, wheel: 0, lean: 0, pitch: 0, hoverBob: 0,
+  boosting: false, inWater: false, overWater: false, slip: 0, landSquash: 0, stepPhase: 0, inUpdraft: false, fallStart: 0
+};
+const keys = new Set();
+const input = { thr: 0, steer: 0, boost: false, jump: false };
+let jumpQueued = false, autopilot = false;
+const GAME = { state: 'loading', time: 0, introT: 0, splits: [], cpIndex: 0, finishTime: 0, best: Number(localStorage.getItem('windvale_best') || 0) || 0, resetting: 0 };
+const touchCtl = { joyId: null, ox: 0, oy: 0, steer: 0, thr: 0, boost: false, boostId: null, jumpId: null, lookId: null };
+addEventListener('keydown', e => {
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (e.repeat) { keys.add(e.code); return; }
+  keys.add(e.code);
+  if (e.code === 'Space') jumpQueued = true;
+  if (e.code === 'Digit1' || e.code === 'Numpad1') switchVehicle('bike');
+  if (e.code === 'Digit2' || e.code === 'Numpad2') switchVehicle('horse');
+  if (e.code === 'Digit3' || e.code === 'Numpad3') switchVehicle('hover');
+  if (e.code === 'KeyR') restart();
+  if (e.code === 'Enter' && GAME.state === 'title') startGame();
+  if (e.code === 'Enter' && GAME.state === 'finished') restart();
+});
+addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('blur', () => { keys.clear(); endLook(); releaseJoy(); touchCtl.boost = false; $('btnBoost')?.classList.remove('held'); });
+const look = { yaw: 0, pitch: 0, drag: false, lx: 0, ly: 0 };
+function applyLookDelta(x, y) {
+  look.yaw = clamp(look.yaw - (x - look.lx) * 0.004, -0.6, 0.6);
+  look.pitch = clamp(look.pitch + (y - look.ly) * 0.003, -0.25, 0.3);
+  look.lx = x; look.ly = y;
+}
+function endLook(id) {
+  if (id != null && touchCtl.lookId !== id && touchCtl.lookId != null) return;
+  look.drag = false; touchCtl.lookId = null;
+}
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'mouse' && e.pointerType !== 'pen') return;
+  look.drag = true; look.lx = e.clientX; look.ly = e.clientY;
+});
+addEventListener('pointermove', e => {
+  if (touchCtl.lookId === e.pointerId || (look.drag && touchCtl.lookId == null && (e.pointerType === 'mouse' || e.pointerType === 'pen'))) applyLookDelta(e.clientX, e.clientY);
+});
+addEventListener('pointerup', e => { if (e.pointerType === 'mouse' || e.pointerType === 'pen' || e.pointerId === touchCtl.lookId) endLook(e.pointerId); });
+addEventListener('pointercancel', e => { if (e.pointerId === touchCtl.lookId || e.pointerType === 'mouse' || e.pointerType === 'pen') endLook(e.pointerId); });
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('touchmove', e => { if (e.cancelable && document.body.classList.contains('racing')) e.preventDefault(); }, { passive: false });
+
+function joyRadius() {
+  const b = $('joyBase'), k = $('joyKnob');
+  return Math.max(36, (b.offsetWidth - k.offsetWidth) * 0.5);
+}
+function setJoyFromDelta(dx, dy) {
+  const r = joyRadius();
+  let nx = dx / r, ny = dy / r;
+  const mag = Math.hypot(nx, ny) || 0;
+  if (mag > 1) { nx /= mag; ny /= mag; }
+  const m = Math.hypot(nx, ny);
+  const DEAD = 0.16;
+  if (m <= DEAD) { touchCtl.steer = 0; touchCtl.thr = 0; }
+  else {
+    const t = (m - DEAD) / (1 - DEAD);
+    const g = t * t * (3 - 2 * t);
+    touchCtl.steer = (-nx / m) * g;
+    touchCtl.thr = (-ny / m) * g;
+  }
+  $('joyKnob').style.transform = `translate(${nx * r}px, ${ny * r}px)`;
+}
+function releaseJoy() {
+  touchCtl.joyId = null; touchCtl.steer = 0; touchCtl.thr = 0;
+  const base = $('joyBase'), knob = $('joyKnob');
+  if (!base) return;
+  base.classList.remove('held');
+  base.style.left = ''; base.style.top = ''; base.style.bottom = '';
+  knob.style.transform = 'translate(0,0)';
+}
+function bindHold(el, on, off) {
+  let id = null;
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    id = e.pointerId;
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    el.classList.add('held'); on(e);
+  });
+  const end = e => {
+    if (id == null || e.pointerId !== id) return;
+    id = null; el.classList.remove('held'); off(e);
+  };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+}
+function initTouchUI() {
+  const zone = $('joyZone'), base = $('joyBase'), lookZ = $('lookZone');
+  zone.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    try { zone.setPointerCapture(e.pointerId); } catch (err) {}
+    touchCtl.joyId = e.pointerId;
+    const r = base.offsetWidth * 0.5;
+    touchCtl.ox = clamp(e.clientX, r + 4, innerWidth * 0.5 - 4);
+    touchCtl.oy = clamp(e.clientY, innerHeight * 0.36, innerHeight - r - 4);
+    base.style.left = touchCtl.ox + 'px';
+    base.style.top = touchCtl.oy + 'px';
+    base.style.bottom = 'auto';
+    base.classList.add('held');
+    setJoyFromDelta(e.clientX - touchCtl.ox, e.clientY - touchCtl.oy);
+  });
+  zone.addEventListener('pointermove', e => {
+    if (e.pointerId !== touchCtl.joyId) return;
+    e.preventDefault();
+    setJoyFromDelta(e.clientX - touchCtl.ox, e.clientY - touchCtl.oy);
+  });
+  const joyEnd = e => { if (e.pointerId === touchCtl.joyId) releaseJoy(); };
+  zone.addEventListener('pointerup', joyEnd);
+  zone.addEventListener('pointercancel', joyEnd);
+  lookZ.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' || e.pointerType === 'pen') return;
+    e.preventDefault();
+    try { lookZ.setPointerCapture(e.pointerId); } catch (err) {}
+    touchCtl.lookId = e.pointerId; look.drag = true; look.lx = e.clientX; look.ly = e.clientY;
+  });
+  bindHold($('btnBoost'), e => { touchCtl.boost = true; touchCtl.boostId = e.pointerId; }, e => { if (e.pointerId === touchCtl.boostId || touchCtl.boostId == null) { touchCtl.boost = false; touchCtl.boostId = null; } });
+  bindHold($('btnJump'), () => { jumpQueued = true; }, () => {});
+  $('btnRestart').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); });
+  $('btnRestart').addEventListener('click', e => { e.preventDefault(); restart(); });
+  document.querySelectorAll('#veh .v').forEach(el => {
+    el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); switchVehicle(el.dataset.v); });
+  });
+}
+
+function readInput() {
+  if (autopilot) {
+    const s = sAtZ(player.pos.z) + 7, z = zAtS(s), T = routeTangent(z), d = routeD(player.pos.x, player.pos.z);
+    const want = Math.atan2(T.x, T.y) + Math.atan(d * 0.18);
+    input.steer = clamp(wrapAngle(want - player.heading) * 2.5, -1, 1); input.thr = 1; input.boost = player.stamina > 0.3 && player.vehicle !== 'hover'; input.jump = false;
+    if (demo.on && demo.jumpZ != null && player.grounded && player.jumpCD <= 0 && player.pos.z < demo.jumpZ + 6 && player.pos.z > demo.jumpZ - 1.5) input.jump = true;
+    return;
+  }
+  const up = keys.has('KeyW') || keys.has('ArrowUp'), dn = keys.has('KeyS') || keys.has('ArrowDown');
+  const lf = keys.has('KeyA') || keys.has('ArrowLeft'), rt = keys.has('KeyD') || keys.has('ArrowRight');
+  let thr = (up ? 1 : 0) - (dn ? 1 : 0), steer = (lf ? 1 : 0) - (rt ? 1 : 0);
+  if (!up && !dn && !lf && !rt) { thr = touchCtl.thr; steer = touchCtl.steer; }
+  input.thr = thr; input.steer = steer;
+  input.boost = keys.has('ShiftLeft') || keys.has('ShiftRight') || touchCtl.boost;
+  input.jump = jumpQueued; jumpQueued = false;
+}
+
+/* =====================================================================
+   物理：自写贴地运动学控制器（网格三角形采样、坡度投影、重力、跳跃、滑行、碰撞）
+   ===================================================================== */
+const G = CONFIG.physics, _g1 = { h: 0, nx: 0, ny: 1, nz: 0, wood: false }, _g2 = { h: 0, nx: 0, ny: 1, nz: 0, wood: false }, _cols = [];
+function toast(msg, ms = 1300) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms); }
+function physicsStep(dt) {
+  const p = player, V = CONFIG.vehicles[p.vehicle], hover = p.vehicle === 'hover';
+  const ctl = (p.stumble > 0 || GAME.state !== 'race') ? { thr: GAME.state === 'finished' ? -1 : 0, steer: 0, boost: false, jump: false } : input;
+  groundAt(p.pos.x, p.pos.z, _g1);
+  const wl = waterLevelAt(p.pos.x, p.pos.z);
+  const depth = wl === null || _g1.wood ? 0 : wl - _g1.h;
+  p.overWater = depth > 0.08; p.inWater = p.overWater && (!hover || p.energy <= 0.001);
+  let surf = classify(p.pos.x, p.pos.z, _g1, _g1.wood ? null : wl);
+  if (hover && surf === 'WATER' && p.energy <= 0.001) surf = 'SUNK';
+  p.surface = surf;
+  const SM = V.surf[surf] || V.surf.GRASS;
+  const t = tOfZ(p.pos.z), forest = isForestT(t);
+  // 方向分解
+  let fx = Math.sin(p.heading), fz = Math.cos(p.heading);
+  let vf = p.vel.x * fx + p.vel.z * fz;
+  const spd = Math.hypot(p.vel.x, p.vel.z);
+  // 转向：速度越快转得越慢；马在密林/急弯明显迟钝
+  const turnScale = Math.min(1, (Math.abs(vf) + 0.6) / V.turnMin) / (1 + Math.abs(vf) * V.turnFalloff);
+  let yawRate = ctl.steer * V.turnRate * SM.turn * (forest ? V.forestTurn : 1) * turnScale * (p.grounded ? 1 : V.airTurn);
+  if (vf < -0.3) yawRate = -yawRate;
+  if (SM.wobble && p.grounded && spd > 4) yawRate += (vnoise(GAME.time * 7, 3.3) - 0.5) * SM.wobble * 1.1;
+  p.heading += yawRate * dt;
+  fx = Math.sin(p.heading); fz = Math.cos(p.heading);
+  const rx = -fz, rz = fx;
+  vf = p.vel.x * fx + p.vel.z * fz; let vl = p.vel.x * rx + p.vel.z * rz;
+  // 冲刺：马/车用耐力，滑板用能量
+  const canBoost = hover ? p.energy > 0.05 : p.stamina > 0.02;
+  p.boosting = ctl.boost && ctl.thr > 0 && canBoost && p.grounded;
+  if (p.boosting) { if (hover) p.energy -= V.boostDrain * dt; else p.stamina -= V.stamDrain * dt; }
+  else if (!hover) p.stamina = Math.min(1, p.stamina + V.stamRegen * dt * (ctl.thr > 0 ? 0.6 : 1.3));
+  if (p.grounded) {
+    let vmax = (p.boosting ? V.boostSpeed : V.maxSpeed) * SM.speed;
+    const slopeDown = -(_g1.nx * fx + _g1.nz * fz) / Math.max(0.3, _g1.ny); // 正=下坡
+    if (hover) vmax += clamp(slopeDown, 0, 0.6) * V.steepBonus; // 滑板：陡坡更快
+    let acc = (p.boosting ? V.boostAccel : V.accel) * SM.accel;
+    if (p.vehicle === 'horse' && spd > 6) acc *= 1 + 0.45 * Math.sin(p.gallop * Math.PI * 2); // 马的步伐节奏感
+    if (ctl.thr > 0) vf += acc * ctl.thr * clamp((vmax - vf) / (vmax * 0.3), -0.4, 1) * dt;
+    else if (ctl.thr < 0) { if (vf > 0.4) vf -= V.brake * SM.grip * Math.min(1, SM.grip + 0.3) * dt * -ctl.thr; else vf = Math.max(vf - V.accel * 0.6 * dt, -V.reverse); }
+    // 坡度重力（投影到前进/侧向）
+    const gs = G.slopeG * V.slopeMul * _g1.ny, ax = gs * _g1.nx, az = gs * _g1.nz;
+    vf += (ax * fx + az * fz) * dt; vl += (ax * rx + az * rz) * dt * 0.6;
+    // 阻力
+    vf -= (V.drag + SM.drag) * vf * dt + V.air * vf * Math.abs(vf) * dt;
+    if (ctl.thr === 0 && Math.abs(vf) < 0.6 && Math.abs(slopeDown) < 0.12) vf *= Math.exp(-4 * dt);
+    if (vf > vmax * 1.35) vf -= (vf - vmax * 1.35) * 1.5 * dt;
+    // 抓地：侧向速度衰减（滑板抓地弱→侧漂；刹车时更漂）
+    let grip = V.grip * SM.grip;
+    if (hover) { if (ctl.thr < 0) grip *= 0.35; if (Math.abs(ctl.steer) > 0 && spd > 12) grip *= 0.75; }
+    vl *= Math.exp(-grip * dt);
+    if (SM.wobble && spd > 5) vl += (vnoise(GAME.time * 5, 9.1) - 0.5) * SM.wobble * 6 * dt * Math.min(1, spd / 15);
+  } else {
+    vf -= V.air * vf * Math.abs(vf) * dt; vl *= Math.exp(-0.3 * dt);
+  }
+  p.slip = vl;
+  p.vel.x = fx * vf + rx * vl; p.vel.z = fz * vf + rz * vl;
+  // 上升气流
+  p.inUpdraft = false;
+  for (const u of UPDRAFTS) { const dd = Math.hypot(p.pos.x - u.x, p.pos.z - u.z); if (dd < u.r && p.pos.y < u.y + u.top) { p.inUpdraft = true;
+    if (hover) { p.vel.y = Math.min(p.vel.y + 34 * dt, 9); p.energy = Math.min(1, p.energy + 0.6 * dt); p.vel.x += fx * 7 * dt; p.vel.z += fz * 7 * dt; if (p.grounded) { p.grounded = false; p.air = 0; } }
+  } }
+  // 水平积分 + 碰撞
+  let nx = p.pos.x + p.vel.x * dt, nz = p.pos.z + p.vel.z * dt;
+  queryColliders(nx, nz, V.radius + 4, _cols);
+  for (const c of _cols) {
+    if (p.pos.y > c.top) continue;
+    let px, pz, dist, ox, oz;
+    if (c.type === 'c') { ox = nx - c.x; oz = nz - c.z; dist = Math.hypot(ox, oz); const md = c.r + V.radius; if (dist >= md) continue; if (dist < 1e-4) { ox = -fx; oz = -fz; dist = 1e-4; } px = c.x + ox / dist * md; pz = c.z + oz / dist * md; ox /= dist; oz /= dist; }
+    else {
+      const cs = Math.cos(c.rot), sn = Math.sin(c.rot), lx = (nx - c.x) * cs - (nz - c.z) * sn, lz = (nx - c.x) * sn + (nz - c.z) * cs;
+      const qx = clamp(lx, -c.hx, c.hx), qz = clamp(lz, -c.hz, c.hz); let ddx = lx - qx, ddz = lz - qz; dist = Math.hypot(ddx, ddz);
+      if (dist >= V.radius) continue;
+      if (dist < 1e-4) { const ex = c.hx - Math.abs(lx), ez = c.hz - Math.abs(lz); if (ex < ez) { ddx = Math.sign(lx) || 1; ddz = 0; } else { ddx = 0; ddz = Math.sign(lz) || 1; } dist = 1e-4; const bx = ddx ? Math.sign(ddx) * (c.hx + V.radius) : lx, bz = ddz ? Math.sign(ddz) * (c.hz + V.radius) : lz; ddx = ddx || 0; ddz = ddz || 0; const wx = bx * cs + bz * sn, wz = -bx * sn + bz * cs; px = c.x + wx; pz = c.z + wz; ox = ddx * cs + ddz * sn; oz = -ddx * sn + ddz * cs; }
+      else { const k = V.radius / dist, bx = qx + ddx * k, bz = qz + ddz * k; px = c.x + bx * cs + bz * sn; pz = c.z - bx * sn + bz * cs; ox = (ddx * cs + ddz * sn) / dist; oz = (-ddx * sn + ddz * cs) / dist; }
+    }
+    nx = px; nz = pz;
+    const vn = p.vel.x * ox + p.vel.z * oz;
+    if (vn < 0) { p.vel.x -= ox * vn * 1.15; p.vel.z -= oz * vn * 1.15; if (-vn > 2) { p.vel.x *= 0.94; p.vel.z *= 0.94; } if (-vn > 12 && p.stumble <= 0) { stumble('撞上了！', 0.8); } else if (-vn > 3) sfxClick(120, 0.08, 0.25); }
+  }
+  // 竖直：贴地 / 腾空 / 悬浮
+  groundAt(nx, nz, _g2);
+  const wl2 = waterLevelAt(nx, nz), hasE = p.energy > 0.001;
+  if (hover) {
+    let sup = _g2.h + (hasE ? V.hoverH : 0.14);
+    if (hasE && wl2 !== null && !_g2.wood) sup = Math.max(sup, wl2 + V.hoverH);
+    const overGap = sup - _g2.h > V.hoverH + 0.4;
+    if (p.grounded) {
+      if (sup < p.pos.y - 1.0) { p.grounded = false; p.air = 0; p.fallStart = p.pos.y; }
+      else { p.vel.y += (V.springK * (sup - p.pos.y) - V.springD * p.vel.y) * dt; p.pos.y += p.vel.y * dt; if (p.pos.y < sup - 0.25) { p.pos.y = sup - 0.25; p.vel.y = Math.max(p.vel.y, 0); } }
+    }
+    if (!p.grounded) {
+      p.vel.y -= G.gravity * dt * (hasE ? 0.6 : 1);
+      if (hasE && p.vel.y < -V.glideFall) { p.vel.y = -V.glideFall; p.energy -= V.glideDrain * dt; }
+      p.pos.y += p.vel.y * dt; p.air += dt;
+      if (p.pos.y <= sup && p.vel.y <= 0.5) land(V, sup, _g2);
+    }
+    if (p.overWater && hasE) p.energy -= V.waterDrain * dt;
+    if (overGap && p.grounded) p.energy -= V.glideDrain * dt * 0.5;
+    if (p.grounded && !p.overWater && !p.boosting) p.energy = Math.min(1, p.energy + V.regen * dt * (sup - _g2.h < 1 ? 1 : 0));
+    if (p.energy < 0 && hasE) { p.energy = 0; toast('能量耗尽！回到陆地恢复', 1500); }
+    p.energy = Math.max(0, p.energy);
+  } else {
+    const sup = _g2.h;
+    if (p.grounded) {
+      // 允许的“跟地”下落：当前竖直速度 + 重力/附着加速度 + 小容差（吸收三角面折角；跳台末端/坡顶仍会腾空）
+      const pred = p.pos.y + p.vel.y * dt - 0.5 * (G.gravity + V.stickAcc) * dt * dt - V.stickTol;
+      if (sup >= pred) { const vy = (sup - p.pos.y) / dt; p.vel.y = clamp(vy, -spd * 1.6 - 2, spd * 1.6 + 2); p.pos.y = sup; }
+      else { p.grounded = false; p.air = 0; p.fallStart = p.pos.y; }
+    }
+    if (!p.grounded) { p.vel.y -= G.gravity * dt; p.pos.y += p.vel.y * dt; p.air += dt; if (p.pos.y <= sup) land(V, sup, _g2); }
+  }
+  // 跳跃
+  if (ctl.jump && p.grounded && p.jumpCD <= 0) {
+    if (hover && p.energy < V.jumpCost * 0.5) toast('能量不足', 700);
+    else { p.vel.y = Math.max(p.vel.y, 0) + V.jumpVel; p.grounded = false; p.air = 0; p.jumpCD = 0.35; p.fallStart = p.pos.y; if (hover) p.energy = Math.max(0, p.energy - V.jumpCost); sfxClick(p.vehicle === 'horse' ? 220 : 500, 0.12, 0.15, 'lp'); }
+  }
+  p.jumpCD -= dt;
+  p.pos.x = nx; p.pos.z = nz;
+  if (p.pos.y < _g2.h - 0.3 && !hover) { p.pos.y = _g2.h; p.vel.y = Math.max(0, p.vel.y); }
+  p.gn.set(_g2.nx, _g2.ny, _g2.nz);
+  if (p.stumble > 0) p.stumble -= dt;
+  // 深水（马/车）或耗尽能量的滑板落入深水 → 重置
+  const d2 = wl2 === null || _g2.wood ? 0 : wl2 - _g2.h;
+  if (d2 > 1.3 && (!hover || !hasE) && p.pos.y < wl2) resetToSafe('水太深了');
+  // 越界
+  const ad = Math.abs(routeD(p.pos.x, p.pos.z)), W = widthAt(tOfZ(p.pos.z));
+  if (ad > W + 55) { const s = Math.sign(routeD(p.pos.x, p.pos.z)), k = (ad - W - 55) * 2.0; p.vel.x -= s * k * dt * 4; }
+  if (ad > W + CONFIG.route.boundsMargin || p.pos.z > 120 || p.pos.z < END_Z - 140 || !isFinite(p.pos.y)) resetToSafe('偏离路线');
+}
+function land(V, sup, g) {
+  const p = player;
+  const impact = -(p.vel.x * g.nx + p.vel.y * g.ny + p.vel.z * g.nz); // 沿法线的冲击速度（顺坡落地冲击小 = 压坡）
+  p.pos.y = sup; p.grounded = true; p.lastLandImpact = impact; p.landSquash = Math.min(1, impact / 12);
+  const vn = p.vel.x * g.nx + p.vel.y * g.ny + p.vel.z * g.nz; p.vel.x -= g.nx * vn; p.vel.z -= g.nz * vn;
+  p.vel.y = -(g.nx * p.vel.x + g.nz * p.vel.z) / Math.max(0.3, g.ny); // 落地后沿坡面运动
+  const keep = 1 - clamp((impact - 3) * 0.025, 0, 0.3); p.vel.x *= keep; p.vel.z *= keep;
+  if (impact > V.hardLand && p.air > 0.25) stumble('重摔！', 0.95);
+  else if (impact > 5) { sfxClick(p.vehicle === 'horse' ? 140 : 260, 0.1, 0.25); for (let i = 0; i < 10; i++) PARTS.emit(p.pos.x + rr(-0.6, 0.6), p.pos.y + 0.1, p.pos.z + rr(-0.6, 0.6), rr(-2, 2), rr(1, 3), rr(-2, 2), p.inWater ? PC.splash : PC.dust, rr(0.25, 0.5), 0.7); }
+  if (p.air > 0.6 && impact < V.hardLand && impact > 0 && p.vehicle === 'bike' && GAME.state === 'race') { const sd = -(g.nx * p.vel.x + g.nz * p.vel.z); if (sd > 0 && impact < 6) toast('压坡落地 +速度', 700), p.vel.x *= 1.06, p.vel.z *= 1.06; }
+}
+function stumble(msg, dur) {
+  const p = player; (GAME.log ||= []).push(['stumble', msg, +p.pos.z.toFixed(0), +GAME.time.toFixed(1)]); p.stumble = dur; p.vel.x *= 0.5; p.vel.z *= 0.5; camShake = 0.6; toast(msg, 900); sfxClick(90, 0.25, 0.4, 'lp');
+  for (let i = 0; i < 16; i++) PARTS.emit(p.pos.x, p.pos.y + 0.3, p.pos.z, rr(-3, 3), rr(1, 4), rr(-3, 3), PC.dust, rr(0.3, 0.6), 0.8);
+}
+function resetToSafe(msg) {
+  if (GAME.resetting > 0) return;
+  (GAME.log ||= []).push(['reset', msg, +player.pos.z.toFixed(0), +GAME.time.toFixed(1)]);
+  GAME.resetting = 0.5; const f = document.getElementById('fade'); f.style.opacity = 0.85; setTimeout(() => f.style.opacity = 0, 280);
+  const now = performance.now(); let sp = null;
+  for (let i = player.safe.length - 1; i >= 0; i--) if (now - player.safe[i].t > 1200) { sp = player.safe[i]; break; }
+  const s = Math.max(0, sAtZ(sp ? sp.z : player.pos.z) - 6);
+  placeAtS(s); toast(msg + ' · 已回到安全点', 1200);
+  if (player.vehicle === 'hover') player.energy = Math.max(player.energy, 0.5);
+}
+function placeAtS(s, keepVehicle = true) {
+  const z = zAtS(s), x = routeX(z), T = routeTangent(z);
+  player.pos.set(x, groundAt(x, z).h + (player.vehicle === 'hover' ? 0.55 : 0), z); player.vel.set(0, 0, 0);
+  player.heading = Math.atan2(T.x, T.y); player.grounded = true; player.stumble = 0; player.air = 0; player.safe.length = 0;
+  camState.yaw = player.heading; camState.init = false;
+}
+function switchVehicle(v) {
+  if (player.vehicle === v || GAME.state === 'loading' || GAME.state === 'title') { if (GAME.state === 'title') { player.vehicle = v; applyVehicleVisual(); } return; }
+  if (player.switchCD > 0) return;
+  const old = player.vehicle; player.vehicle = v; player.switchCD = 0.25;
+  const V = CONFIG.vehicles[v], sp = Math.hypot(player.vel.x, player.vel.z), cap = V.boostSpeed * 1.1;
+  if (sp > cap) { player.vel.x *= cap / sp; player.vel.z *= cap / sp; }
+  if (v === 'hover' && player.grounded) player.pos.y += 0.3;
+  if (old === 'hover' && player.grounded) player.pos.y = groundAt(player.pos.x, player.pos.z).h;
+  applyVehicleVisual();
+  for (let i = 0; i < 22; i++) { const a = i / 22 * Math.PI * 2; PARTS.emit(player.pos.x + Math.cos(a) * 0.8, player.pos.y + 0.6, player.pos.z + Math.sin(a) * 0.8, Math.cos(a) * 3, rr(0.5, 2), Math.sin(a) * 3, PC.puff, rr(0.35, 0.6), 0.6, 0.5); }
+  sfxTone([76, 83], 0.06, 0.07);
+  toast(V.name, 700);
+}
+function applyVehicleVisual() {
+  for (const k in MODELS) MODELS[k].root.visible = k === player.vehicle;
+  document.querySelectorAll('#veh .v').forEach(el => el.classList.toggle('on', el.dataset.v === player.vehicle));
+  document.getElementById('energyRow').classList.toggle('dim', player.vehicle !== 'hover');
+  document.getElementById('stamRow').style.opacity = player.vehicle === 'hover' ? 0.45 : 1;
+}
+
+/* =====================================================================
+   动画：骑行/奔跑/滑板姿态
+   ===================================================================== */
+const _v3 = new THREE.Vector3();
+function resetPose() {
+  rider.root.rotation.set(0, 0, 0); rider.pelvis.rotation.set(0, 0, 0); rider.spine.rotation.set(0, 0, 0); rider.head.rotation.set(0, 0, 0);
+  for (const s of [-1, 1]) { rider.arm[s].sh.rotation.set(0, 0, 0); rider.arm[s].el.rotation.set(0, 0, 0); rider.leg[s].hip.rotation.set(0, 0, 0); rider.leg[s].kn.rotation.set(0, 0, 0); }
+}
+function animate(dt) {
+  const p = player, spd = Math.hypot(p.vel.x, p.vel.z), fwd = p.vel.x * Math.sin(p.heading) + p.vel.z * Math.cos(p.heading);
+  resetPose();
+  const st = p.stumble > 0 ? Math.sin(p.stumble * 18) * Math.min(1, p.stumble * 2) : 0;
+  p.landSquash = damp(p.landSquash, 0, 6, dt);
+  // 整体倾斜：贴合坡度 + 转向侧倾
+  const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
+  const slope = p.grounded ? -(p.gn.x * fx + p.gn.z * fz) / Math.max(0.3, p.gn.y) : clamp(p.vel.y / Math.max(4, spd), -0.6, 0.6) * -1;
+  p.pitch = damp(p.pitch, Math.atan(slope) * (p.grounded ? 1 : 0.6), 10, dt);
+  const leanT = (p.vehicle === 'horse' ? 0.12 : p.vehicle === 'hover' ? 0.4 : 0.3) * input.steer * Math.min(1, spd / 9) * (GAME.state === 'race' && p.stumble <= 0 ? 1 : 0);
+  p.lean = damp(p.lean, leanT + st * 0.3, 7, dt);
+  tilt.rotation.set(p.pitch, 0, p.lean, 'YXZ');
+  tilt.position.y = -p.landSquash * 0.12;
+  const scarf = (k) => { rider.scarfTail.forEach((s, i) => { s.rotation.x = -0.9 + Math.min(1, spd / 15) * 0.85 + Math.sin(GAME.time * 12 + i * 1.3) * 0.18 * Math.min(1, spd / 8 + 0.2) + k; s.rotation.y = Math.sin(GAME.time * 9 + i) * 0.2; }); };
+  if (p.vehicle === 'bike') {
+    p.wheel += fwd / 0.36 * dt; bike.wheels.forEach(w => w.rotation.x = p.wheel);
+    if (input.thr > 0 && p.grounded && GAME.state === 'race') p.crank += Math.min(fwd / 0.36 * 0.38, 13) * dt * (p.boosting ? 1.3 : 1);
+    bike.crank.rotation.x = p.crank;
+    const standing = !p.grounded || p.surface === 'GRAVEL' || p.boosting;
+    rider.root.position.set(0, 0.99 + (standing ? 0.12 : 0) + Math.sin(p.crank * 2) * 0.01, -0.2 + (standing ? 0.06 : 0));
+    rider.root.rotation.z = -p.lean * 0.3;
+    const lean = 0.62 + (p.boosting ? 0.18 : 0) + st * 0.4; rider.spine.rotation.x = lean; rider.head.rotation.x = -lean * 0.75;
+    for (const s of [-1, 1]) {
+      const a = p.crank + (s > 0 ? 0 : Math.PI), py = bike.BB[1] - Math.sin(a) * 0.17 + 0.07, pz = bike.BB[2] + Math.cos(a) * 0.17 - 0.03;
+      const hy = rider.root.position.y - 0.02, hz = rider.root.position.z, [h, k] = legIK(py - hy, pz - hz);
+      rider.leg[s].hip.rotation.x = h; rider.leg[s].kn.rotation.x = k; rider.leg[s].hip.rotation.z = s * 0.06;
+      // 手臂 IK 到车把（在脊柱坐标系中求解）
+      const shy = rider.root.position.y + 0.06 + Math.cos(lean) * 0.43, shz = rider.root.position.z + Math.sin(lean) * 0.43;
+      let dy = 1.08 - shy, dz = 0.41 - shz; const c = Math.cos(-lean), sn = Math.sin(-lean); const ly = dy * c - dz * sn, lz = dy * sn + dz * c;
+      const [, ak, aa, ab] = legIK(ly, lz, 0.27, 0.25); rider.arm[s].sh.rotation.x = aa + ab; rider.arm[s].el.rotation.x = -ak; rider.arm[s].sh.rotation.z = s * 0.28;
+    }
+    scarf(0);
+  } else if (p.vehicle === 'horse') {
+    const amp = clamp(spd / 11, 0, 1), freq = spd < 0.4 ? 0 : spd < 6 ? spd / 1.7 : clamp(spd / 6.2, 1.4, 3.1);
+    const prev = p.gallop; p.gallop = (p.gallop + freq * dt) % 1;
+    if (spd > 1 && p.grounded && GAME.state === 'race' && Math.floor(prev * 2) !== Math.floor(p.gallop * 2)) { sfxClick(spd > 6 ? 170 : 240, 0.07, 0.22); sfxClick(210, 0.05, 0.12); }
+    const ph = p.gallop * Math.PI * 2, air = !p.grounded;
+    for (const L of horse.legs) {
+      const a = ph + L.ph * Math.PI * 2, A = air ? 0 : amp;
+      L.up.rotation.x = air ? (L.kind === 'F' ? -0.7 : 0.55) : -Math.sin(a) * (0.15 + 0.5 * A);
+      const fold = Math.max(0, Math.cos(a)) * (0.25 + 1.0 * A);
+      L.lo.rotation.x = air ? (L.kind === 'F' ? 1.5 : -0.9) : (L.kind === 'F' ? fold : -fold * 0.8);
+    }
+    const bob = Math.abs(Math.sin(ph)) * 0.09 * amp, pitchB = Math.sin(ph * 2) * 0.05 * amp;
+    horse.body.position.y = 1.17 + bob - (air ? 0 : 0.03 * amp); horse.body.rotation.x = pitchB + (air ? -0.12 : 0);
+    horse.neck.rotation.x = -Math.sin(ph) * 0.14 * amp + 0.06 + Math.sin(GAME.time * 1.3) * 0.03 * (1 - amp) - (air ? 0.2 : 0);
+    horse.head.rotation.x = Math.sin(ph + 1) * 0.08 * amp;
+    horse.tail.forEach((s, i) => { s.rotation.x = -0.25 + amp * 0.35 + Math.sin(GAME.time * 3 + i) * 0.06; s.rotation.y = Math.sin(GAME.time * (2 + amp * 5) + i * 0.7) * (0.14 + amp * 0.12); });
+    rider.root.position.set(0, 1.72 + bob * 0.55 + Math.sin(ph * 2 + 0.6) * 0.02 * amp, 0.04);
+    rider.root.rotation.x = pitchB * 0.5;
+    rider.spine.rotation.x = 0.18 + amp * 0.28 + (p.boosting ? 0.15 : 0) + st * 0.5; rider.head.rotation.x = -rider.spine.rotation.x * 0.7;
+    for (const s of [-1, 1]) {
+      rider.leg[s].hip.rotation.set(-1.15, 0, s * 0.5); rider.leg[s].kn.rotation.x = 1.45;
+      rider.arm[s].sh.rotation.set(-0.75 - amp * 0.2, 0, s * 0.12); rider.arm[s].el.rotation.x = -0.75;
+    }
+    scarf(0);
+  } else {
+    p.hoverBob += dt;
+    const e = p.energy, glowA = 0.25 + e * 0.6;
+    board.glowMat.opacity = glowA * (0.8 + Math.sin(GAME.time * 14) * 0.2); board.coneMat.opacity = 0.08 + e * 0.22;
+    board.deck.position.y = Math.sin(p.hoverBob * 3) * 0.03 * (e > 0 ? 1 : 0);
+    board.deck.rotation.y = clamp(-p.slip * 0.05, -0.4, 0.4);
+    rider.root.position.set(0, 0.86 - (p.boosting ? 0.08 : 0) - p.landSquash * 0.12 + board.deck.position.y, 0);
+    rider.root.rotation.y = 1.35 + board.deck.rotation.y;
+    rider.spine.rotation.set(0.18 + (p.boosting ? 0.25 : 0) + st * 0.4, 0, -p.lean * 0.6);
+    rider.head.rotation.set(-0.15, -1.15, 0);
+    const crouch = p.boosting ? 0.25 : 0;
+    for (const s of [-1, 1]) {
+      rider.leg[s].hip.rotation.set(-0.5 - crouch, 0, s * 0.34); rider.leg[s].kn.rotation.x = 0.9 + crouch * 2;
+      rider.arm[s].sh.rotation.set(-0.2, 0, s * (1.05 + Math.sin(GAME.time * 2 + s) * 0.08) + p.lean * 0.8); rider.arm[s].el.rotation.set(0, 0, s * 0.35);
+    }
+    scarf(0.2);
+  }
+  // 粒子
+  if (GAME.state === 'race' && spd > 5 && Math.random() < dt * 40) {
+    const back = -1.0, x = p.pos.x + Math.sin(p.heading) * back, z = p.pos.z + Math.cos(p.heading) * back, y = p.pos.y + 0.05;
+    const sv = p.surface;
+    if (p.vehicle === 'hover') { if (p.energy > 0) PARTS.emit(x + rr(-0.3, 0.3), y - 0.4, z, rr(-1, 1), rr(-0.5, 0.5), rr(-1, 1), p.overWater ? PC.splash : PC.wind, rr(0.15, 0.35), 0.5, -0.5); }
+    else if (sv === 'WATER') PARTS.emit(x, y + 0.2, z, rr(-3, 3), rr(2, 4.5), rr(-3, 3), PC.splash, rr(0.3, 0.55), 0.7, 9);
+    else if (sv === 'DIRT' || sv === 'GRAVEL' || sv === 'TOWN') PARTS.emit(x, y + 0.1, z, rr(-1.5, 1.5) - p.vel.x * 0.1, rr(0.5, 2), rr(-1.5, 1.5) - p.vel.z * 0.1, sv === 'GRAVEL' ? PC.gravel : PC.dust, rr(0.35, 0.8), 0.9, 1);
+    else if (sv === 'TALL' || sv === 'GRASS') { if (Math.random() < 0.4) PARTS.emit(x, y + 0.4, z, rr(-2, 2), rr(1, 3), rr(-2, 2), Math.random() < 0.5 ? PC.grass : PC.leaf, rr(0.1, 0.2), 0.9, 5); }
+  }
+}
+
+/* =====================================================================
+   镜头：开场俯瞰 → 第三人称追尾（滞后、预摆、防穿地）
+   ===================================================================== */
+const camState = { pos: new THREE.Vector3(), look: new THREE.Vector3(), yaw: Math.PI, init: false, fov: CONFIG.camera.fov };
+let camShake = 0;
+const _desired = new THREE.Vector3(), _look = new THREE.Vector3();
+const OVERVIEW = { pos: new THREE.Vector3(), look: new THREE.Vector3(), ready: false };
+function computeOverview() { // 自动抬高机位，保证能越过山脊和树看到小镇
+  const sx = routeX(30) + 10, sz = 60, sy = heightAt(sx, sz), ty = heightAt(PLAZA.x, PLAZA.z) + 18;
+  let H = 30;
+  for (; H < 260; H += 5) {
+    let ok = true;
+    for (let i = 3; i < 160 && ok; i++) { const t = i / 160, x = lerp(sx, PLAZA.x, t), z = lerp(sz, PLAZA.z, t), y = lerp(sy + H, ty, t); if (y < heightAt(x, z) + 16 * Math.min(1, t * 8)) ok = false; }
+    if (ok) break;
+  }
+  OVERVIEW.pos.set(sx, sy + H + 6, sz); OVERVIEW.look.set(PLAZA.x, ty - 40, PLAZA.z); OVERVIEW.H = H; OVERVIEW.ready = true;
+}
+function overviewPose(t, outPos, outLook) {
+  if (!OVERVIEW.ready) computeOverview();
+  outPos.copy(OVERVIEW.pos); outPos.x += Math.sin(t * 0.12) * 6; outPos.z -= Math.min(t, 6) * 2;
+  outLook.copy(OVERVIEW.look);
+}
+function chasePose(dt, outPos, outLook) {
+  const p = player, V = CONFIG.vehicles[p.vehicle], spd = Math.hypot(p.vel.x, p.vel.z), CC = CONFIG.camera;
+  const velYaw = spd > 3 ? Math.atan2(p.vel.x, p.vel.z) : p.heading;
+  const baseYaw = p.vehicle === 'hover' ? dampAngle(p.heading, velYaw, 1, 0.5) : p.heading;
+  const target = baseYaw + input.steer * 0.12 * Math.min(1, spd / 10) + look.yaw;
+  camState.yaw = dt > 0 ? dampAngle(camState.yaw, target, CC.yawLag, dt) : target;
+  const dist = V.camDist + spd * 0.06, hgt = V.camH + spd * 0.02 + look.pitch * 4;
+  outPos.set(p.pos.x - Math.sin(camState.yaw) * dist, p.pos.y + hgt, p.pos.z - Math.cos(camState.yaw) * dist);
+  outLook.set(p.pos.x + Math.sin(camState.yaw) * CC.lookAhead, p.pos.y + 1.3, p.pos.z + Math.cos(camState.yaw) * CC.lookAhead);
+}
+function updateCamera(dt) {
+  const CC = CONFIG.camera;
+  if (!look.drag) { look.yaw = damp(look.yaw, 0, 2.5, dt); look.pitch = damp(look.pitch, 0, 2.5, dt); }
+  let fovT = CC.fov;
+  if (GAME.state === 'title' || GAME.state === 'loading') { overviewPose(U.time.value, camState.pos, camState.look); fovT = 34; camState.fov = 34; }
+  else if (GAME.state === 'intro') {
+    const k = smoothstep(CC.introHold, CC.introHold + CC.introBlend, GAME.introT);
+    overviewPose(U.time.value, _desired, _look); const op = _desired.clone(), ol = _look.clone();
+    chasePose(0, _desired, _look);
+    camState.pos.lerpVectors(op, _desired, k); camState.look.lerpVectors(ol, _look, k); camState.fov = lerp(34, CC.fov, k); fovT = camState.fov;
+    if (k >= 1) camState.init = true;
+  } else {
+    chasePose(dt, _desired, _look);
+    if (!camState.init) { camState.pos.copy(_desired); camState.look.copy(_look); camState.init = true; }
+    camState.pos.x = damp(camState.pos.x, _desired.x, CC.lag, dt); camState.pos.z = damp(camState.pos.z, _desired.z, CC.lag, dt);
+    camState.pos.y = damp(camState.pos.y, _desired.y, CC.lag * 0.8, dt);
+    camState.look.lerp(_look, 1 - Math.exp(-12 * dt));
+    const spd = Math.hypot(player.vel.x, player.vel.z); fovT = CC.fov + clamp((spd - 8) / 20, 0, 1) * CC.fovBoost;
+    camState.fov = damp(camState.fov, fovT, 3, dt);
+  }
+  // 防穿地：相机及其与角色之间的几个采样点都要高于地面
+  if (GAME.state !== 'title' && GAME.state !== 'loading') {
+    for (let i = 0; i <= 3; i++) { const t = i / 3, x = lerp(camState.pos.x, player.pos.x, t * 0.6), z = lerp(camState.pos.z, player.pos.z, t * 0.6); const h = groundAt(x, z, _g1).h + 0.9 - t * 0.3; if (camState.pos.y < h) camState.pos.y = h; }
+  }
+  camera.position.copy(camState.pos);
+  if (camShake > 0) { camShake = Math.max(0, camShake - dt * 1.8); camera.position.x += (Math.random() - 0.5) * camShake * 0.5; camera.position.y += (Math.random() - 0.5) * camShake * 0.5; }
+  // 轻微呼吸摆动
+  if (GAME.state === 'race') camera.position.y += Math.sin(GAME.time * 1.7) * 0.03 + (player.vehicle === 'horse' ? Math.abs(Math.sin(player.gallop * Math.PI * 2)) * 0.05 : 0);
+  camera.lookAt(camState.look);
+  if (Math.abs(camera.fov - camState.fov) > 0.01) { camera.fov = camState.fov; camera.updateProjectionMatrix(); }
+}
+
+/* =====================================================================
+   HUD / 流程
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const fmt = t => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? '0' : ''}${s.toFixed(2)}`; };
+(() => { const bar = $('bar'); CHECKS.forEach(cp => { const d = document.createElement('div'); d.className = 'tick'; d.style.left = (cp.s / S_END * 100) + '%'; bar.appendChild(d); cp.el = d; }); })();
+let hudTimer = 0;
+function updateHUD(dt) {
+  hudTimer -= dt; if (hudTimer > 0) return; hudTimer = 0.066;
+  const p = player, spd = Math.hypot(p.vel.x, p.vel.z, p.grounded ? p.vel.y : 0);
+  $('spd').textContent = Math.round(spd * 3.6);
+  const sn = (p.vehicle === 'hover' && p.surface === 'WATER') ? '水面' : (SURF_NAME[p.surface] || '草地'), V = CONFIG.vehicles[p.vehicle], SM = V.surf[p.surface] || V.surf.GRASS;
+  const el = $('surf'); el.textContent = sn + (SM.speed < 0.8 ? ' · 减速' : SM.speed > 1.05 ? ' · 加速' : '') + (SM.grip < 0.6 ? ' · 打滑' : ''); el.className = SM.speed < 0.8 || SM.grip < 0.6 ? 'slow' : '';
+  $('stam').style.width = (p.stamina * 100).toFixed(1) + '%';
+  $('energy').style.width = (p.energy * 100).toFixed(1) + '%';
+  $('energyRow').classList.toggle('low', p.energy < 0.25);
+  const prog = clamp(p.s / S_END, 0, 1); $('me').style.left = (prog * 100) + '%';
+  const rem = Math.max(0, S_END - p.s); $('dist').textContent = rem > 1000 ? `距小镇 ${(rem / 1000).toFixed(2)} km` : `距小镇 ${Math.round(rem)} m`;
+  $('secName').textContent = sectionName(tOfZ(p.pos.z));
+  $('tm').textContent = fmt(GAME.time);
+  let hint = '';
+  if (p.vehicle === 'hover' && p.energy <= 0.001) hint = '悬浮能量耗尽：在陆地上滑行即可恢复';
+  else if (p.vehicle === 'horse' && isForestT(tOfZ(p.pos.z)) && spd > 8) hint = '密林里马转向迟钝，试试 1 山地车';
+  else if (p.vehicle === 'bike' && (p.surface === 'TALL' || p.surface === 'WATER')) hint = p.surface === 'TALL' ? '深草拖慢自行车，回到土路或换 2 骑马' : '浅滩里车很慢，走桥或换 3 悬浮板';
+  else if (p.inUpdraft && p.vehicle !== 'hover') hint = '上升气流！悬浮滑板在这里能被抬升加速';
+  const h = $('hint'); h.textContent = hint; h.classList.toggle('show', !!hint);
+}
+function resetRun() {
+  GAME.time = 0; GAME.splits = []; GAME.cpIndex = 0; CHECKS.forEach(c => c.el.classList.remove('done'));
+  player.stamina = 1; player.energy = 1; placeAtS(2); player.heading = Math.atan2(routeTangent(player.pos.z).x, routeTangent(player.pos.z).y);
+  $('split').textContent = `检查点 0 / ${CHECKS.length}`;
+}
+function startGame() {
+  if (GAME.state !== 'title') return;
+  initAudio(); if (AUDIO.ctx && AUDIO.ctx.state === 'suspended') AUDIO.ctx.resume();
+  $('title').style.display = 'none'; resetRun(); GAME.state = 'intro'; GAME.introT = 0; camState.init = false; document.body.classList.add('racing');
+}
+function restart() {
+  if (GAME.state === 'loading' || GAME.state === 'title') return;
+  $('finish').style.display = 'none'; resetRun(); GAME.state = 'intro'; GAME.introT = CONFIG.camera.introHold * 0.4; camState.init = false; document.body.classList.add('racing');
+}
+function finish() {
+  GAME.state = 'finished'; GAME.finishTime = GAME.time;
+  const isBest = !GAME.best || GAME.time < GAME.best; if (isBest) { GAME.best = GAME.time; try { localStorage.setItem('windvale_best', String(GAME.time)); } catch (e) {} }
+  $('finTime').textContent = fmt(GAME.time); $('finBest').textContent = isBest ? '★ 新纪录！' : `最佳纪录 ${fmt(GAME.best)}`;
+  $('finSplits').innerHTML = GAME.splits.map((s, i) => `<tr><td>检查点 ${i + 1}</td><td>${fmt(s.t)}</td><td>${s.v}</td></tr>`).join('') + `<tr><td><b>小镇广场</b></td><td><b>${fmt(GAME.time)}</b></td><td>${CONFIG.vehicles[player.vehicle].name}</td></tr>`;
+  if (demo.on) { setTimeout(() => { $('demoEnd').style.display = 'block'; }, 1400); }
+  else setTimeout(() => { $('finish').style.display = 'block'; }, 700);
+  sfxTone([67, 71, 74, 79, 83, 86], 0.12, 0.12); if (!demo.on) toast('抵达风谷镇！', 1600);
+  for (let i = 0; i < 60; i++) PARTS.emit(player.pos.x + rr(-3, 3), player.pos.y + rr(2, 5), player.pos.z + rr(-3, 3), rr(-4, 4), rr(2, 7), rr(-4, 4), [PC.puff, C(0xd0573a), C(0xe8b447), C(0x4fb3a9)][i % 4], rr(0.2, 0.4), 2.2, 3);
+}
+function raceLogic(dt) {
+  const p = player; p.s = sAtZ(p.pos.z);
+  if (GAME.state === 'race') {
+    GAME.time += dt;
+    const cp = CHECKS[GAME.cpIndex];
+    if (cp && p.s >= cp.s) {
+      GAME.splits.push({ t: GAME.time, v: CONFIG.vehicles[p.vehicle].name }); cp.el.classList.add('done'); GAME.cpIndex++;
+      const prev = GAME.splits.length > 1 ? GAME.splits[GAME.splits.length - 2].t : 0;
+      toast(`检查点 ${GAME.cpIndex} · ${fmt(GAME.time)}  (+${fmt(GAME.time - prev)})`, 1600); sfxTone([72, 79], 0.1, 0.1);
+      $('split').textContent = `检查点 ${GAME.cpIndex} / ${CHECKS.length} · 分段 ${fmt(GAME.time - prev)}`;
+    }
+    if (Math.hypot(p.pos.x - PLAZA.x, p.pos.z - PLAZA.z) < PLAZA.r - 2 || p.s > S_END - 4) finish();
+    // 安全点记录
+    p.safeTimer -= dt;
+    if (p.safeTimer <= 0 && p.grounded && !p.overWater && p.stumble <= 0 && Math.abs(routeD(p.pos.x, p.pos.z)) < widthAt(tOfZ(p.pos.z))) { p.safeTimer = 0.5; p.safe.push({ z: p.pos.z, t: performance.now() }); if (p.safe.length > 20) p.safe.shift(); }
+    // 卡住保护
+    const spd = Math.hypot(p.vel.x, p.vel.z);
+    if (Math.abs(input.thr) > 0.25 && spd < 0.8) { p.stuckTimer += dt; if (p.stuckTimer > 5) { p.stuckTimer = 0; resetToSafe('卡住了'); } } else p.stuckTimer = 0;
+  }
+  if (GAME.resetting > 0) GAME.resetting -= dt;
+  p.switchCD -= dt;
+}
+function updateIntro(dt) {
+  if (GAME.state !== 'intro') return;
+  GAME.introT += dt;
+  const CC = CONFIG.camera, total = CC.introHold + CC.introBlend, c = $('count');
+  const left = total - GAME.introT;
+  if (left > 0) { const n = Math.ceil(left / (total / 3)); c.textContent = n; c.style.opacity = GAME.introT > 0.2 ? 1 : 0; }
+  else { GAME.state = 'race'; c.textContent = '出发！'; c.style.opacity = 1; setTimeout(() => c.style.opacity = 0, 650); sfxTone([79, 84], 0.12, 0.12); if (demo.on) demo.onIntroDone(); }
+  if (demo.on) c.style.opacity = 0;
+}
+
+
+/* =====================================================================
+   主循环 + 性能保护
+   ===================================================================== */
+let last = performance.now(), acc = 0, fpsAvg = 60, fpsFrames = 0, fpsTime = 0, downgraded = 0, raceClock = 0;
+const _sunOff = SUN_DIR.clone().multiplyScalar(220);
+function simulate(dt) {
+  readInput();
+  acc += dt; let n = 0;
+  while (acc >= G.dt && n < G.maxSub) { physicsStep(G.dt); acc -= G.dt; n++; }
+  if (n >= G.maxSub) acc = 0;
+}
+let captureMode = false;
+function stepFixed(dt = 1 / 30) {
+  last = performance.now();
+  U.time.value += dt;
+  if (GAME.state !== 'title' && GAME.state !== 'loading') { simulate(dt); updateIntro(dt); raceLogic(dt); }
+  if (demo.on) demo.tick(dt);
+  tick(dt);
+  renderer.render(scene, camera);
+}
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (captureMode) return;
+  let dt = Math.min(0.1, (now - last) / 1000); last = now;
+  fpsFrames++; fpsTime += dt; if (fpsTime > 0.5) { fpsAvg = fpsFrames / fpsTime; fpsFrames = 0; fpsTime = 0; }
+  U.time.value += dt;
+  if (GAME.state !== 'title' && GAME.state !== 'loading') { simulate(dt); updateIntro(dt); raceLogic(dt); }
+  if (demo.on) demo.tick(dt);
+  else GAME.time += dt * 0; 
+  tick(dt);
+  renderer.render(scene, camera);
+}
+function tick(dt) {
+  if (GAME.state === 'title' || GAME.state === 'loading') camState._t = (camState._t || 0) + dt;
+  GAME.timeVis = (GAME.timeVis || 0) + dt;
+  animate(dt);
+  playerRoot.position.copy(player.pos); playerRoot.rotation.y = player.heading;
+  PLAYER_U.value.copy(player.pos);
+  updateCamera(dt);
+  PARTS.update(dt);
+  const cx = camera.position.x, cz = camera.position.z;
+  grassNear.mat.uniforms.uCam.value.copy(camera.position); grassMid.mat.uniforms.uCam.value.copy(camera.position);
+  sky.position.copy(camera.position); farRidges.position.set(cx, 0, cz);
+  // 阴影相机跟随玩家并对齐纹素，避免闪烁
+  const focus = GAME.state === 'title' ? _look.set(routeX(-40), heightAt(routeX(-40), -40), -40) : player.pos;
+  const texel = (CONFIG.quality.shadowRange * 2) / CONFIG.quality.shadowMapSize;
+  sun.target.position.set(Math.round(focus.x / texel) * texel, Math.round(focus.y / texel) * texel, Math.round(focus.z / texel) * texel);
+  sun.position.copy(sun.target.position).add(_sunOff); sun.target.updateMatrixWorld();
+  updateLOD(camera.position);
+  if (windmillBlades) windmillBlades.rotation.z += dt * 0.8;
+  if (balloon) { balloon.position.y += Math.sin(U.time.value * 0.5) * dt * 0.6; balloon.rotation.y += dt * 0.05; }
+  updateHUD(dt);
+  // 音频
+  if (AUDIO.ctx) {
+    const spd = Math.hypot(player.vel.x, player.vel.z), t = AUDIO.ctx.currentTime;
+    AUDIO.gain.gain.setTargetAtTime(GAME.state === 'race' ? 0.05 + Math.min(0.35, spd * 0.012) : 0.04, t, 0.2);
+    AUDIO.lp.frequency.setTargetAtTime(300 + spd * 60, t, 0.2);
+    AUDIO.og.gain.setTargetAtTime(player.vehicle === 'hover' && GAME.state === 'race' ? 0.025 * (0.3 + player.energy) : 0, t, 0.1);
+    AUDIO.osc.frequency.setTargetAtTime(90 + spd * 4 + (player.boosting ? 40 : 0), t, 0.1);
+  }
+  // 自动降级（仅一次一档）：帧率持续低于 40 时降低像素比 / 草量
+  if (GAME.state === 'race' && CONFIG.quality.autoDowngrade) {
+    raceClock += dt;
+    if (raceClock > 4 && fpsAvg < 40 && downgraded < 2) {
+      downgraded++; raceClock = 0;
+      if (downgraded === 1) { pixelRatio = Math.min(pixelRatio, 1); renderer.setPixelRatio(pixelRatio); grassNear.mesh.geometry.instanceCount = Math.floor(grassNear.count * 0.65); }
+      else { grassMid.mesh.geometry.instanceCount = Math.floor(grassMid.count * 0.5); sun.shadow.mapSize.set(1024, 1024); sun.shadow.map?.dispose(); sun.shadow.map = null; outlinesOn = false; LOD_CHUNKS.forEach(c => c.state = -1); }
+    }
+  }
+}
+function onResize() {
+  const w = innerWidth, h = innerHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+}
+addEventListener('resize', onResize);
+if (window.visualViewport) visualViewport.addEventListener('resize', onResize);
+
+/* =====================================================================
+   初始化：先渲染一帧“生成中”，再搭建世界
+   ===================================================================== */
+function buildWorld() {
+  const t0 = performance.now();
+  buildLandmarks(); buildTown(); placeVegetation(); placeRocks();
+  buildTreeMeshes(); buildRockMeshes(); buildStatic(); buildUpdrafts();
+  player.vehicle = 'bike'; applyVehicleVisual(); resetRun();
+  GAME.buildMs = Math.round(performance.now() - t0);
+}
+requestAnimationFrame(() => setTimeout(() => {
+  buildWorld();
+  GAME.state = 'title';
+  const b = $('startBtn'); b.disabled = false; b.textContent = isTouch ? '开始' : '开始 (Enter)'; b.onclick = startGame;
+  $('againBtn').textContent = isTouch ? '再跑一次' : '再跑一次 (R)';
+  $('againBtn').onclick = restart;
+  initTouchUI();
+  // 预编译着色器，避免开局卡顿
+  try { renderer.compile(scene, camera); } catch (e) {}
+  requestAnimationFrame(frame);
+}, 30));
+
+
+/* =====================================================================
+   演示过场：在地址栏加上 ?demo=1 后，开场会按片段自动切换载具与镜头
+   ===================================================================== */
+const demo = {
+  on: new URLSearchParams(location.search).has('demo'),
+  phase: 'idle', beat: -1, t: 0, jumpZ: null,
+  beats: [
+    { cap: '山地自行车  ·  土路与跳台', vehicle: 'bike', start: true, dur: 16, jumpZ: -258 },
+    { cap: '骑马  ·  开阔草原', vehicle: 'horse', t: 0.09, offX: 16, dur: 13 },
+    { cap: '悬浮滑板  ·  掠过湖面', vehicle: 'hover', lake: true, dur: 14 },
+    { cap: '林间路', vehicle: 'bike', t: 0.56, dur: 9 },
+    { cap: '冲向河谷小镇', vehicle: 'horse', t: 0.935, dur: 18 }
+  ],
+  setCap(text) {
+    const el = $('demoCap'); if (!el) return;
+    if (!text) { el.classList.remove('show'); return; }
+    el.textContent = text; el.classList.add('show');
+  },
+  fade(on, ms = 480) {
+    const f = $('fade'); f.style.transition = `opacity ${ms}ms ease`; f.style.opacity = on ? 1 : 0;
+  },
+  skipChecks() {
+    player.s = sAtZ(player.pos.z);
+    while (CHECKS[GAME.cpIndex] && player.s >= CHECKS[GAME.cpIndex].s) {
+      CHECKS[GAME.cpIndex].el.classList.add('done'); GAME.cpIndex++;
+    }
+    $('split').textContent = `检查点 ${GAME.cpIndex} / ${CHECKS.length}`;
+  },
+  setup(i) {
+    const b = this.beats[i];
+    this.beat = i; this.phase = 'play'; this.t = 0; this.jumpZ = b.jumpZ ?? null;
+    player.switchCD = 0; player.stumble = 0; player.energy = 1; player.stamina = 1; player.air = 0;
+    if (b.vehicle) switchVehicle(b.vehicle);
+    if (b.lake) {
+      const x = LAKE.cx, z = LAKE.cz + LAKE.rz * 0.84;
+      const y = Math.max(LAKE.level, groundAt(x, z).h) + 0.7;
+      player.pos.set(x, y, z);
+      player.heading = Math.PI;
+      player.vel.set(0, 0, -15);
+      player.grounded = true;
+    } else if (!b.start) {
+      const z = zOfT(b.t), x = routeX(z) + (b.offX || 0);
+      const T = routeTangent(z);
+      player.pos.set(x, groundAt(x, z).h + (player.vehicle === 'hover' ? 0.55 : 0), z);
+      player.heading = Math.atan2(T.x, T.y);
+      player.vel.set(T.x * 12, 0, T.y * 12);
+      player.grounded = true;
+    } else {
+      const T = routeTangent(player.pos.z);
+      player.vel.set(T.x * 9, 0, T.y * 9);
+    }
+    camState.init = false; look.yaw = 0; look.pitch = 0;
+    this.skipChecks();
+    autopilot = true;
+    this.setCap(b.cap);
+  },
+  onIntroDone() {
+    if (this.phase !== 'idle') return;
+    this.setup(0);
+  },
+  tick(dt) {
+    if (GAME.state === 'title' || GAME.state === 'loading' || GAME.state === 'intro') return;
+    if (GAME.state === 'finished') {
+      this.setCap('');
+      this.t += dt;
+      if (this.phase !== 'ending') { this.phase = 'ending'; this.t = 0; }
+      return;
+    }
+    if (this.phase === 'play') {
+      this.t += dt;
+      const b = this.beats[this.beat];
+      const last = this.beat === this.beats.length - 1;
+      if (!last && this.t >= b.dur) { this.phase = 'fadeout'; this.t = 0; this.fade(true, 450); this.setCap(''); }
+    } else if (this.phase === 'fadeout') {
+      this.t += dt;
+      if (this.t >= 0.5) {
+        this.setup(this.beat + 1);
+        this.phase = 'fadein'; this.t = 0; this.fade(false, 550);
+      }
+    } else if (this.phase === 'fadein') {
+      this.t += dt;
+      if (this.t >= 0.55) { this.phase = 'play'; /* t already counting from setup? reset play timer */ this.t = 0; }
+    }
+  }
+};
+if (demo.on) {
+  document.body.classList.add('demo');
+  CONFIG.camera.introHold = 3.8;
+  CONFIG.camera.introBlend = 1.6;
+}
+
+/* 调试 / 自动化测试接口 */
+window.__game = {
+  CONFIG, player, GAME, CHECKS, plaza: PLAZA, get fps() { return fpsAvg; }, get S_END() { return S_END; },
+  start: () => startGame(), restart: () => restart(), setVehicle: v => switchVehicle(v),
+  setAutopilot: on => { autopilot = !!on; }, demo, keys,
+  teleportT: (t) => { placeAtS(sAtZ(zOfT(t))); camState.init = false; },
+  skipIntro: () => { if (GAME.state === 'intro') { GAME.introT = 99; updateIntro(0); camState.init = false; } },
+  simulate: (seconds, opts = {}) => { // 不渲染的快速物理模拟
+    const steps = Math.round(seconds / G.dt);
+    for (let i = 0; i < steps && GAME.state === 'race'; i++) { readInput(); physicsStep(G.dt); raceLogic(G.dt); if (opts.vehicleAt) { const v = opts.vehicleAt(player); if (v && v !== player.vehicle) { player.switchCD = 0; switchVehicle(v); } } }
+    return __game.stats();
+  },
+  stats: () => ({ state: GAME.state, time: +GAME.time.toFixed(2), s: +player.s.toFixed(1), S_END: +S_END.toFixed(1), x: +player.pos.x.toFixed(2), y: +player.pos.y.toFixed(2), z: +player.pos.z.toFixed(2),
+    speed: +Math.hypot(player.vel.x, player.vel.z).toFixed(2), vehicle: player.vehicle, surface: player.surface, energy: +player.energy.toFixed(2), grounded: player.grounded, splits: GAME.splits.map(s => +s.t.toFixed(2)), fps: +fpsAvg.toFixed(1), buildMs: GAME.buildMs }),
+  rx: routeX, place: (x, z) => { player.pos.set(x, groundAt(x, z).h + (player.vehicle === 'hover' ? 0.55 : 0), z); const T = routeTangent(z); player.heading = Math.atan2(T.x, T.y); player.vel.set(T.x * 8, 0, T.y * 8); player.grounded = true; player.stumble = 0; player.energy = 1; player.stamina = 1; applyVehicleVisual(); camState.init = false; },
+  place2: (x, z) => { const sp = player.vel.length(); const T = routeTangent(z); player.pos.set(x, groundAt(x, z).h + (player.vehicle === 'hover' ? 0.55 : 0), z); player.heading = Math.atan2(T.x, T.y); player.vel.set(T.x * sp, 0, T.y * sp); player.grounded = true; player.energy = 1; player.stumble = 0; },
+  colsNear: (z0, z1, maxD) => { const out = []; for (const a of COL.map.values()) for (const c of a) { if (c.z > z0 || c.z < z1) continue; const d = routeD(c.x, c.z); if (Math.abs(d) < maxD) out.push({ type: c.type, x: +c.x.toFixed(1), z: +c.z.toFixed(1), r: c.r, d: +d.toFixed(2), top: +(c.top - heightAt(c.x, c.z)).toFixed(1) }); } return out.filter((v, i, a) => a.findIndex(w => w.x === v.x && w.z === v.z) === i); },
+  probeD: (x, z) => routeD(x, z),
+  ov: () => ({ H: OVERVIEW.H, pos: OVERVIEW.pos.toArray().map(v => +v.toFixed(1)) }),
+  lake: LAKE, streams: STREAMS,
+  probe: (x, z) => { const g = groundAt(x, z, {}); return { h: g.h, surf: classify(x, z, g, waterLevelAt(x, z)), water: waterLevelAt(x, z) }; },
+  beginCapture: () => { captureMode = true; CONFIG.quality.autoDowngrade = false; fpsAvg = 60; acc = 0; },
+  setCaptureQuality: (q = {}) => {
+    const gn = q.grassNear ?? 1, gm = q.grassMid ?? 1;
+    grassNear.mesh.geometry.instanceCount = Math.max(1, Math.floor(grassNear.count * gn));
+    grassMid.mesh.geometry.instanceCount = Math.max(1, Math.floor(grassMid.count * gm));
+    if (q.shadows === false) renderer.shadowMap.enabled = false;
+    else if (q.shadowMap) { renderer.shadowMap.enabled = true; sun.shadow.mapSize.set(q.shadowMap, q.shadowMap); sun.shadow.map?.dispose(); sun.shadow.map = null; }
+    if (q.outlines === false) outlinesOn = false;
+    if (q.pixelRatio) { pixelRatio = q.pixelRatio; renderer.setPixelRatio(pixelRatio); }
+  },
+
+  stepFixed,
+  captureStatus: () => ({ state: GAME.state, demoPhase: demo.phase, demoBeat: demo.beat, demoT: +demo.t.toFixed(2), time: +GAME.time.toFixed(2), vehicle: player.vehicle, end: getComputedStyle($('demoEnd')).display !== 'none' }),
+};
+
+</script>
+</body>
+</html>
