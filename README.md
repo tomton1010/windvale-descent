@@ -2,6 +2,18 @@
 
 一款第三人称下山竞速小游戏，全部内容写在单个 `index.html` 里，用 Three.js 在浏览器中运行。场景、载具、材质和音效都是程序生成的，不依赖外部模型或贴图。
 
+![标题画面](screenshots/title.jpg)
+
+## 截图
+
+![山地车沿谷底土路速降](screenshots/bike.jpg)
+
+![悬浮板越过湖面](screenshots/hoverboard.jpg)
+
+![林间路](screenshots/forest.jpg)
+
+![骑马抵达河谷小镇](screenshots/town.jpg)
+
 ## 怎么玩
 
 需要能访问网络，因为 Three.js 是从 jsDelivr CDN 加载的。任选一种方式打开：
