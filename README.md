@@ -23,6 +23,10 @@
 
 进入后点击「开始」，或在电脑上按 Enter。
 
+标题画面可以选画质「高 / 中 / 低」，上次的选择会记住。电脑默认「高」，手机（粗指针，平板通常也是）默认「低」。仍需联网，以便从 CDN 加载 Three.js。
+
+On the title screen, choose 高 / 中 / 低. The last choice is remembered; desktop defaults to 高 and phones to 低. A network connection is still required to load Three.js from the CDN.
+
 ## 操作
 
 **电脑：** WASD / 方向键移动，空格跳跃，Shift 冲刺，1 / 2 / 3 切换载具（自行车 / 马 / 悬浮板），R 重开，鼠标环视。触摸按钮在桌面端会隐藏。
